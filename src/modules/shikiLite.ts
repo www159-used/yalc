@@ -5,6 +5,7 @@
 import { createHighlighterCoreSync, type HighlighterCore } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import langCpp from "@shikijs/langs/cpp";
+import langRust from "@shikijs/langs/rust";
 import langJava from "@shikijs/langs/java";
 import langJavascript from "@shikijs/langs/javascript";
 import langPython from "@shikijs/langs/python";
@@ -18,7 +19,7 @@ function getHighlighter(): HighlighterCore {
   if (cached) return cached;
   cached = createHighlighterCoreSync({
     themes: [themeDarkPlus, themeLightPlus],
-    langs: [langTypescript, langJavascript, langPython, langCpp, langJava],
+    langs: [langTypescript, langJavascript, langPython, langCpp, langJava, langRust],
     engine: createJavaScriptRegexEngine(),
   });
   return cached;

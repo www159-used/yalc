@@ -245,6 +245,9 @@ export async function runRecursionTrace(opts: TraceRunOptions): Promise<Recursio
   if (opts.lang === "cpp") {
     return { ok: false, frames: [], truncated: false, message: "recursion visualizer doesn't support C++ yet" };
   }
+  if (opts.lang === "rust") {
+    return { ok: false, frames: [], truncated: false, message: "Rust visualization is not supported." };
+  }
   if (opts.lang === "java") {
     return { ok: false, frames: [], truncated: false, message: "recursion visualizer doesn't support Java yet" };
   }

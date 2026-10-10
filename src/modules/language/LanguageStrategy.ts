@@ -1,3 +1,4 @@
+import { rustSnippetWithPlaceholders } from "../RustProject";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
@@ -99,8 +100,7 @@ function findJavaMainClass(source: string): string | null {
 
 /**
  * Java entry-class name for a problem file base: `2` → `LCexMain2`, `two-sum` → `LCexMainTwoSum`.
- * Java class names cannot start with a digit or contain `-`, and the file must be named after the
- * class it runs, so Java solution files are named after this entry class.
+ * Legacy local runner naming; solution filenames no longer use this class name.
  */
 export function javaEntryClassName(base: string): string {
   const parts = base.split(/[^A-Za-z0-9$]+/).filter(Boolean);
@@ -108,14 +108,13 @@ export function javaEntryClassName(base: string): string {
   return `${JAVA_RUNNER_CLASS}${pascal || "Solution"}`;
 }
 
-/** Solution file base for a problem id/slug; Java doubles as the entry class (suffix `-abc` → `_abc`). */
+/** All solution languages share the configured id/slug naming and attempt suffix. */
 export function solutionFileBaseName(
-  lang: SupportedLanguage,
+  _lang: SupportedLanguage,
   base: string,
   attemptSuffix = ""
 ): string {
-  if (lang !== "java") return `${base}${attemptSuffix}`;
-  return javaEntryClassName(base) + attemptSuffix.replace(/-/g, "_");
+  return `${base}${attemptSuffix}`;
 }
 
 /** Reverse of Java solution naming: `LCexMain2` → `2`, `LCexMainTwoSum` → `two-sum`; other bases unchanged. */
@@ -951,12 +950,40 @@ const pandasStrategy = createDatabaseStrategy(
   "#"
 );
 
+/** Rust solutions use LeetCode's driver; no local main or generated examples. */
+const rustStrategy: LanguageStrategy = {
+  id: "rust",
+  kind: "algorithm",
+  fileExtension: ".rs",
+  leetcodeApiLang: "rust",
+  shikiLang: "rust",
+  displayName: "Rust",
+  commentPrefix: "//",
+  todoPlaceholder: "// Rust template unavailable for this problem.",
+  usesRunnableTemplateExamples: false,
+  getSnippetFromProblem: (problem) => rustSnippetWithPlaceholders(problem.codeSnippets?.rust ?? ""),
+  isExampleOutputLine: () => false,
+  parseExampleExpectedComment: () => null,
+  runSolutionFile: async () => ({stdout: "", stderr: "Use Run on LeetCode for Rust solutions."}),
+  buildTerminalCommand: () => { throw new Error("Use Run on LeetCode for Rust solutions."); },
+  getParamCount: () => 0,
+  getFunctionName: (snippet) => snippet.match(/\bfn\s+(\w+)/)?.[1] ?? "solve",
+  renderExampleCall: () => "",
+  formatExpectedSuffix: () => "",
+  formatRunnableExampleSection: () => "",
+  getDesignClassName: () => null,
+  renderDesignExampleSection: () => "",
+  localizeExpectedLiteral: (value) => value,
+  appendLocalRunStubIfNeeded: () => "",
+};
+
 const STRATEGIES: Record<SupportedLanguage, LanguageStrategy> = {
   typescript: typescriptStrategy,
   javascript: javascriptStrategy,
   python: pythonStrategy,
   cpp: cppStrategy,
   java: javaStrategy,
+  rust: rustStrategy,
   mysql: mysqlStrategy,
   pandas: pandasStrategy,
 };
@@ -1021,6 +1048,7 @@ export const LANGUAGE_SHORT: Record<SupportedLanguage, string> = {
   python: "py",
   cpp: "cpp",
   java: "java",
+  rust: "rs",
   mysql: "sql",
   pandas: "pd",
 };
