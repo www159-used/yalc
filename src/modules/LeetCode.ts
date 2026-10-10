@@ -1,8 +1,12 @@
+import { stripRustLocalSupport } from "./RustProject";
+import type { RunResult } from "./interface/RunResult";
+import { publicExampleInput } from "../utils/exampleInput";
+import type { SubmissionResult } from "./interface/SubmissionResult";
 import type { IProblemProvider, Problem } from "./interface/Problem";
 import * as Logger from "./Logger";
 
-const GRAPHQL_URL = "https://leetcode.com/graphql/";
-const REST_BASE = "https://leetcode.com";
+const GRAPHQL_URL = "https://leetcode.cn/graphql/";
+const REST_BASE = "https://leetcode.cn";
 const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
 
 /**
@@ -28,8 +32,8 @@ const FETCH_HEADERS: Record<string, string> = {
   "Content-Type": "application/json",
   Accept: "*/*",
   "Accept-Language": "en-US,en;q=0.9",
-  Origin: "https://leetcode.com",
-  Referer: "https://leetcode.com/",
+  Origin: "https://leetcode.cn",
+  Referer: "https://leetcode.cn/",
   "User-Agent":
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
@@ -45,9 +49,11 @@ query questionData($titleSlug: String!) {
   question(titleSlug: $titleSlug) {
     questionId
     title
+    translatedTitle
     titleSlug
     difficulty
     content
+    translatedContent
     categoryTitle
     metaData
     dataSchemas
@@ -69,6 +75,8 @@ query questionDifficulty($titleSlug: String!) {
 `;
 
 interface LeetCodeQuestion {
+  translatedTitle?: string | null;
+  translatedContent?: string | null;
   questionId: string;
   title: string;
   titleSlug: string;
@@ -202,7 +210,7 @@ async function favoriteListRequestHeaders(
   favoriteSlug: string,
   cookie?: string
 ): Promise<Record<string, string>> {
-  const referer = `https://leetcode.com/problem-list/${favoriteSlug}/`;
+  const referer = `https://leetcode.cn/problem-list/${favoriteSlug}/`;
   if (cookie?.trim()) {
     const h = await authHeaders(cookie);
     return { ...h, Referer: referer };
@@ -244,10 +252,10 @@ function getCsrfFromCookie(cookie: string): string | undefined {
   return match ? match[1] : undefined;
 }
 
-/** Fetches csrftoken by GET leetcode.com and reading Set-Cookie. */
+/** Fetches csrftoken by GET leetcode.cn and reading Set-Cookie. */
 async function fetchCsrfToken(cookieHeader: string): Promise<string | undefined> {
   try {
-    const res = await fetchWithTimeout("https://leetcode.com/", {
+    const res = await fetchWithTimeout("https://leetcode.cn/", {
       method: "GET",
       headers: {
         ...FETCH_HEADERS,
@@ -269,10 +277,10 @@ async function fetchCsrfToken(cookieHeader: string): Promise<string | undefined>
 
 /** Builds headers for authenticated GraphQL requests (cookie + x-csrftoken). */
 async function authHeaders(cookie: string): Promise<Record<string, string>> {
-  const cookieHeader = toCookieHeader(cookie);
+  const cookieHeader = toCookieHeader(cookie).replace(/\bCSRFTOKEN=/gi, "csrftoken=");
   let csrf = getCsrfFromCookie(cookieHeader);
   if (!csrf) {
-    Logger.log("Cookie has no csrftoken; fetching from leetcode.com...");
+    Logger.log("Cookie has no csrftoken; fetching from leetcode.cn...");
     csrf = await fetchCsrfToken(cookieHeader);
     if (csrf) Logger.log("Got csrftoken from page.");
     else Logger.log("Could not get csrftoken. Paste full Cookie header including csrftoken from DevTools.");
@@ -548,7 +556,7 @@ export class LeetCodeProvider implements IProblemProvider {
   async getUpcomingContests(): Promise<ContestSummary[]> {
     const res = await fetchWithTimeout(GRAPHQL_URL, {
       method: "POST",
-      headers: { ...FETCH_HEADERS, Referer: "https://leetcode.com/contest/" },
+      headers: { ...FETCH_HEADERS, Referer: "https://leetcode.cn/contest/" },
       body: JSON.stringify({
         operationName: "contestV2UpcomingContests",
         variables: {},
@@ -599,7 +607,7 @@ export class LeetCodeProvider implements IProblemProvider {
   async getPastContests(skip: number, limit: number): Promise<{ totalNum: number; contests: ContestSummary[] }> {
     const res = await fetchWithTimeout(GRAPHQL_URL, {
       method: "POST",
-      headers: { ...FETCH_HEADERS, Referer: "https://leetcode.com/contest/" },
+      headers: { ...FETCH_HEADERS, Referer: "https://leetcode.cn/contest/" },
       body: JSON.stringify({
         operationName: "contestV2HistoryContests",
         variables: { skip, limit },
@@ -659,7 +667,7 @@ export class LeetCodeProvider implements IProblemProvider {
   async getContestQuestionList(contestSlug: string): Promise<ContestProblemItem[]> {
     const res = await fetchWithTimeout(GRAPHQL_URL, {
       method: "POST",
-      headers: { ...FETCH_HEADERS, Referer: `https://leetcode.com/contest/${contestSlug}/` },
+      headers: { ...FETCH_HEADERS, Referer: `https://leetcode.cn/contest/${contestSlug}/` },
       body: JSON.stringify({
         operationName: "contestQuestionList",
         variables: { contestSlug },
@@ -986,10 +994,11 @@ export class LeetCodeProvider implements IProblemProvider {
     const tsSnippet = codeSnippets["typescript"];
     return {
       id: q.questionId,
-      title: q.title,
+      title: q.translatedTitle?.trim() || q.title,
       titleSlug: q.titleSlug,
       difficulty: q.difficulty,
       content: q.content ?? "",
+      translatedContent: q.translatedContent?.trim() || undefined,
       categoryTitle: q.categoryTitle,
       metaData: q.metaData,
       dataSchemas: Array.isArray(q.dataSchemas) ? q.dataSchemas : undefined,
@@ -1091,16 +1100,16 @@ export class LeetCodeProvider implements IProblemProvider {
       Logger.log("runCode: getProblem returned null");
       return null;
     }
-    const input = dataInput !== undefined && dataInput !== null ? dataInput : (question.sampleTestCase ?? "");
+    const input = dataInput !== undefined && dataInput !== null ? dataInput : publicExampleInput(question);
     const headers = await authHeaders(cookie);
     const url = `${REST_BASE}/problems/${encodeURIComponent(titleSlug)}/interpret_solution/`;
     const res = await fetchWithTimeout(url, {
       method: "POST",
-      headers: { ...headers, Referer: `https://leetcode.com/problems/${titleSlug}/` },
+      headers: { ...headers, Referer: `https://leetcode.cn/problems/${titleSlug}/` },
       body: JSON.stringify({
         lang,
         question_id: question.id,
-        typed_code: code,
+        typed_code: lang === "rust" ? stripRustLocalSupport(code) : code,
         data_input: input,
       }),
     });
@@ -1145,11 +1154,11 @@ export class LeetCodeProvider implements IProblemProvider {
     const url = `${REST_BASE}/problems/${encodeURIComponent(slug)}/submit/`;
     const res = await fetchWithTimeout(url, {
       method: "POST",
-      headers: { ...headers, Referer: `https://leetcode.com/problems/${slug}/` },
+      headers: { ...headers, Referer: `https://leetcode.cn/problems/${slug}/` },
       body: JSON.stringify({
         lang,
         question_id: question.id,
-        typed_code: code,
+        typed_code: lang === "rust" ? stripRustLocalSupport(code) : code,
       }),
     });
     if (!res.ok) {
@@ -1175,12 +1184,12 @@ export class LeetCodeProvider implements IProblemProvider {
   async getRunStatus(
     interpretId: string,
     cookie: string
-  ): Promise<{ status: number; runOutput?: string; compileError?: string } | null> {
+  ): Promise<RunResult | null> {
     const headers = await authHeaders(cookie);
     const url = `${REST_BASE}/submissions/detail/${encodeURIComponent(interpretId)}/check/`;
     const res = await fetchWithTimeout(url, {
       method: "GET",
-      headers: { ...headers, Referer: "https://leetcode.com/problems/" },
+      headers: { ...headers, Referer: "https://leetcode.cn/problems/" },
     });
     if (!res.ok) {
       const errBody = await res.text();
@@ -1196,6 +1205,13 @@ export class LeetCodeProvider implements IProblemProvider {
       full_compile_error?: string;
       compile_error?: string;
       compileError?: string;
+      runtime_error?: string;
+      correct_answer?: boolean;
+      total_correct?: number;
+      total_testcases?: number;
+      code_answer?: string[];
+      expected_code_answer?: string[];
+      compare_result?: string;
     };
     try {
       json = (await res.json()) as typeof json;
@@ -1204,57 +1220,92 @@ export class LeetCodeProvider implements IProblemProvider {
     }
     const state = (json.state ?? "").toUpperCase();
     if (state === "PENDING" || state === "STARTED") {
-      return { status: 10 };
+      return { status: -1 };
     }
     const status = json.status_code ?? json.statusCode ?? 0;
     const runOutput = json.run_output ?? json.runOutput;
     const compileError = json.full_compile_error ?? json.compile_error ?? json.compileError;
-    return { status, runOutput, compileError };
+    const count = json.total_testcases ?? json.compare_result?.length ?? json.code_answer?.length ?? 0;
+    const testcaseResults = Array.from({ length: count }, (_, id) => ({
+      id,
+      status: json.compare_result?.[id] === "1",
+      stdout: json.code_answer?.[id],
+      expectedOutput: json.expected_code_answer?.[id],
+    }));
+    return { status, runOutput, compileError,
+      runtimeError: json.runtime_error,
+      correctAnswer: json.correct_answer,
+      totalCorrect: json.total_correct,
+      totalTestcases: json.total_testcases,
+      testcaseResults,
+    };
   }
 
   async getSubmitStatus(
     submissionId: number,
     cookie: string
-  ): Promise<{
-    status: string;
-    runSuccess?: boolean;
-    compileError?: string;
-    runtimeError?: string;
-  } | null> {
+  ): Promise<SubmissionResult | null> {
     const headers = await authHeaders(cookie);
-    const url = `${REST_BASE}/submissions/detail/${submissionId}/check/`;
-    const res = await fetchWithTimeout(url, {
-      method: "GET",
-      headers: { ...headers, Referer: "https://leetcode.com/problems/" },
+    // CN's legacy /check/ endpoint can remain PENDING after judging has finished.
+    // Use the same submission detail query as the Chinese site's results page.
+    const res = await fetchWithTimeout(GRAPHQL_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        query: `query submissionDetails($submissionId: ID!) {
+          submissionDetail(submissionId: $submissionId) {
+            statusDisplay
+            passedTestCaseCnt
+            totalTestCaseCnt
+            runtime
+            memory
+            runtimePercentile
+            memoryPercentile
+            langVerboseName
+            ... on GeneralSubmissionNode { outputDetail { compileError runtimeError } }
+            ... on ContestSubmissionNode { outputDetail { compileError runtimeError } }
+          }
+        }`,
+        variables: { submissionId: String(submissionId) },
+      }),
     });
     if (!res.ok) {
-      const errBody = await res.text();
-      Logger.log(`getSubmitStatus: HTTP ${res.status} ${errBody.slice(0, 200)}`);
+      Logger.log(`getSubmitStatus: HTTP ${res.status}`);
       return null;
     }
-    let json: {
-      state?: string;
-      status?: string;
-      run_success?: boolean;
-      runSuccess?: boolean;
-      full_compile_error?: string;
-      compile_error?: string;
-      compileError?: string;
-      runtime_error?: string;
-      runtimeError?: string;
+    const json = await res.json() as {
+      errors?: unknown[];
+      data?: { submissionDetail?: {
+        statusDisplay?: string;
+        passedTestCaseCnt?: number | null;
+        totalTestCaseCnt?: number | null;
+        runtime?: string | null;
+        memory?: string | null;
+        runtimePercentile?: number | null;
+        memoryPercentile?: number | null;
+        langVerboseName?: string | null;
+        outputDetail?: { compileError?: string; runtimeError?: string };
+      } | null };
     };
-    try {
-      json = (await res.json()) as typeof json;
-    } catch {
+    if (json.errors?.length) {
+      Logger.log("getSubmitStatus: GraphQL query failed");
       return null;
     }
-    const state = (json.state ?? "").toUpperCase();
-    const status = state ? state : (json.status ?? "PENDING");
+    const detail = json.data?.submissionDetail;
+    const verdict = detail?.statusDisplay?.trim();
+    const pending = !verdict || /^(pending|started|judging|queueing)$/i.test(verdict);
     return {
-      status,
-      runSuccess: json.run_success ?? json.runSuccess,
-      compileError: json.full_compile_error ?? json.compile_error ?? json.compileError,
-      runtimeError: json.runtime_error ?? json.runtimeError,
+      status: pending ? "PENDING" : verdict,
+      runSuccess: verdict === "Accepted",
+      compileError: detail?.outputDetail?.compileError || undefined,
+      runtimeError: detail?.outputDetail?.runtimeError || undefined,
+      passedTestCaseCnt: detail?.passedTestCaseCnt ?? undefined,
+      totalTestCaseCnt: detail?.totalTestCaseCnt ?? undefined,
+      runtime: detail?.runtime || undefined,
+      memory: detail?.memory || undefined,
+      runtimePercentile: detail?.runtimePercentile ?? undefined,
+      memoryPercentile: detail?.memoryPercentile ?? undefined,
+      language: detail?.langVerboseName || undefined,
     };
   }
 }

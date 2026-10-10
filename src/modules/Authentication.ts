@@ -13,7 +13,7 @@ export async function signIn(context: vscode.ExtensionContext): Promise<void> {
     ignoreFocusOut: true,
     title: "Cookies",
     prompt:
-      "Paste your LeetCode cookies from DevTools → Application → Cookies → leetcode.com. Include both LEETCODE_SESSION and csrftoken (copy the full Cookie header or paste both values).",
+      "Paste your LeetCode cookies from DevTools → Application → Cookies → leetcode.cn. Include both LEETCODE_SESSION and csrftoken (copy the full Cookie header or paste both values).",
     placeHolder: "LEETCODE_SESSION=...; csrftoken=...",
     password: true,
   });

@@ -1,9 +1,3 @@
-<% let heading, subheading %>
-<% if (status) { %>
-  <% heading = "Congratulations! :)"; subheading = "You have passed the sample testcases. Click the submit button to run your code against all the code test cases."; %>
-<% } else { %>
-  <% heading = "Wrong answer :("; subheading = "Check the compiler error, fix the error and try again"; %>
-<% } %>
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -14,7 +8,14 @@
       body { margin: 0; padding: 1em; font-family: var(--vscode-font-family); }
       p { font-size: 15px; color: var(--vscode-editor-foreground); }
       h2 { font-size: 30px; line-height: 1; margin: 20px 0; }
+      .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 24px 0; }
+      .metric { padding: 16px; border: 1px solid var(--vscode-panel-border, #555); border-radius: 6px; }
+      .metric dt { color: var(--vscode-descriptionForeground); font-size: 13px; }
+      .metric dd { margin: 8px 0 0; color: var(--vscode-editor-foreground); font-size: 22px; }
+      .metric small { display: block; margin-top: 8px; color: var(--vscode-descriptionForeground); font-size: 12px; }
+      a { color: var(--vscode-textLink-foreground); }
       .success { color: #26a641; }
+      .pending { color: var(--vscode-editor-foreground); }
       .fail { color: #d11534; }
       section { margin-top: 40px; border: 1px solid grey; border-radius: 5px; padding: 20px 10px; }
       section p { font-size: 16px; font-weight: bold; }
@@ -23,16 +24,37 @@
     </style>
   </head>
   <body>
-    <h2 class="<%= status ? 'success' : 'fail' %>"><%= heading %></h2>
+    <h2 class="<%= status === null ? 'pending' : status ? 'success' : 'fail' %>"><%= heading %></h2>
     <p><%= subheading %></p>
+    <% if (typeof submission !== 'undefined' && submission) { %>
+    <dl class="metrics">
+      <% if (submission.passedTestCaseCnt != null && submission.totalTestCaseCnt != null) { %>
+      <div class="metric"><dt>通过用例</dt><dd><%= submission.passedTestCaseCnt %> / <%= submission.totalTestCaseCnt %></dd></div>
+      <% } %>
+      <% if (submission.runtime) { %>
+      <div class="metric"><dt>运行时间</dt><dd><%= submission.runtime %></dd>
+        <% if (Number.isFinite(submission.runtimePercentile)) { %><small>击败 <%= submission.runtimePercentile.toFixed(2) %>% 的同语言提交</small><% } %>
+      </div>
+      <% } %>
+      <% if (submission.memory) { %>
+      <div class="metric"><dt>内存占用</dt><dd><%= submission.memory %></dd>
+        <% if (Number.isFinite(submission.memoryPercentile)) { %><small>击败 <%= submission.memoryPercentile.toFixed(2) %>% 的同语言提交</small><% } %>
+      </div>
+      <% } %>
+      <% if (submission.language) { %>
+      <div class="metric"><dt>提交语言</dt><dd><%= submission.language %></dd></div>
+      <% } %>
+    </dl>
+    <p>提交 #<%= submission.id %> · <a href="https://leetcode.cn/submissions/detail/<%= submission.id %>/">在力扣查看详情 ↗</a></p>
+    <% } %>
     <% testcaseResults.forEach(function(tc) { %>
     <section>
-      <h4 class="<%= tc.status ? 'success' : 'fail' %>">Sample Test Case <%= tc.id + 1 %></h4>
-      <% if (tc.stdin && tc.stdin.length) { %><p>Input (stdin)</p><code><%- tc.stdin.replace(/\n/g, "<br/>") %></code><% } %>
-      <p>Your Output (stdout)</p>
-      <code><%- (tc.stdout || "—").replace(/\n/g, "<br/>") %></code>
-      <p>Expected Output</p>
-      <code><%- (tc.expectedOutput || "—").replace(/\n/g, "<br/>") %></code>
+      <h4 class="<%= tc.status ? 'success' : 'fail' %>">运行用例 <%= tc.id + 1 %></h4>
+      <% if (tc.stdin && tc.stdin.length) { %><p>Input (stdin)</p><code><%= tc.stdin %></code><% } %>
+      <p>实际结果</p>
+      <code><%= tc.stdout ?? "—" %></code>
+      <p>预期结果</p>
+      <code><%= tc.expectedOutput ?? "—" %></code>
     </section>
     <% }); %>
   </body>

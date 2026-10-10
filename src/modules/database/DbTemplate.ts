@@ -50,7 +50,7 @@ function contextLines(problem: Problem): string[] {
   }
   if (seed) {
     lines.push("");
-    lines.push("Example input (this is what a local run seeds)");
+    lines.push("Public example input");
     lines.push(...indent(seedLines(seed)));
   }
   if (expected) {
@@ -65,7 +65,7 @@ function headerLines(problem: Problem): string[] {
   return [
     `${problem.id}. ${problem.title}`,
     problem.difficulty ? `Difficulty: ${problem.difficulty}` : "",
-    `https://leetcode.com/problems/${problem.titleSlug}/`,
+    `https://leetcode.cn/problems/${problem.titleSlug}/`,
   ].filter((l) => l !== "");
 }
 

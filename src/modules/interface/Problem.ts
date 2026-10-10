@@ -3,7 +3,10 @@ export interface Problem {
   title: string;
   titleSlug: string;
   difficulty: string;
+  /** Original English statement, retained for example and constraint parsers. */
   content: string;
+  /** Localized statement for display; fall back to content when unavailable. */
+  translatedContent?: string;
   /** Function signature + body placeholder (default/lang snippet for backward compat) */
   codeSnippet: string;
   /** All language snippets from API: langSlug -> code */
@@ -30,6 +33,7 @@ export const SUPPORTED_LANGUAGES = [
   "python",
   "cpp",
   "java",
+  "rust",
   "mysql",
   "pandas",
 ] as const;
