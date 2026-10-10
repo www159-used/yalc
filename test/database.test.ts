@@ -307,7 +307,7 @@ describe("solution templates", () => {
     const sql = generateDbTemplate(COMBINE_TWO_TABLES, "mysql");
     assert.match(sql, /^-- 175\. Combine Two Tables/);
     assert.match(sql, /-- {3}Person\(personId INT, firstName VARCHAR\(255\)/);
-    assert.match(sql, /Example input/);
+    assert.match(sql, /Public example input/);
     assert.match(sql, /Expected output/);
     assert.match(sql, /# Write your MySQL query statement below/);
     assert.ok(

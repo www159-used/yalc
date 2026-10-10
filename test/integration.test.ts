@@ -6,7 +6,6 @@ import type { IProblemProvider } from "../src/modules/interface/Problem";
 import { LeetCodeProvider } from "../src/modules/LeetCode";
 import { InternalApiProvider } from "../src/modules/InternalProvider";
 import { generateTemplate } from "../src/modules/TemplateEngine";
-import { runTsFile, compareOutput } from "../src/modules/ExampleRunner";
 
 const TEST_OUTPUT_DIR = path.join(__dirname, "..", "test-output");
 const PROBLEM_ID = "392";
@@ -17,22 +16,32 @@ function getProvider(): IProblemProvider {
   return new LeetCodeProvider();
 }
 
-describe("Integration: fetch, scrape, create file, run", () => {
-  it("fetches problem 167 from LeetCode, writes real file, runs examples", async () => {
+describe("Integration: fetch and create solution file", () => {
+  it("fetches problem 392 from LeetCode and writes its official solution stub", async () => {
     const provider = getProvider();
     const problem = await provider.getProblem(PROBLEM_ID);
 
     assert.ok(
       problem,
-      "Failed to fetch problem 167. LeetCode often blocks Node; set LEETCODE_TEST_API_URL to your internal API (e.g. GET {url}/problem/167 returns problem JSON) and run again."
+      "Failed to fetch problem 392. LeetCode often blocks Node; set LEETCODE_TEST_API_URL to your internal API (e.g. GET {url}/problem/392 returns problem JSON) and run again."
     );
-    assert.strictEqual(problem.id, PROBLEM_ID, "problem id should be 167");
+    assert.strictEqual(problem.id, PROBLEM_ID, "problem id should be 392");
     assert.ok(problem.title.length > 0, "problem should have title");
+    if (!process.env.LEETCODE_TEST_API_URL?.trim()) {
+      assert.strictEqual(problem.title, "判断子序列");
+      assert.match(problem.codeSnippets?.rust ?? "", /impl Solution/);
+      const rust = generateTemplate(problem, {language: "rust"});
+      assert.match(rust, /impl Solution/);
+      assert.match(rust, /pub fn is_subsequence/);
+      assert.match(rust, /todo!\(\)/);
+      assert.ok(!rust.includes("fn main"));
+      assert.match(problem.translatedContent ?? "", /子序列/);
+    }
     assert.ok(problem.codeSnippet.length > 0, "problem should have code snippet");
 
     const content = generateTemplate(problem);
     assert.ok(content.includes(`// ${PROBLEM_ID}.`), "template should include problem header");
-    assert.ok(content.includes("console.log("), "template should include example blocks");
+    assert.ok(!content.includes("console.log("), "template should not include a local test driver");
 
     fs.mkdirSync(TEST_OUTPUT_DIR, { recursive: true });
     const filePath = path.join(TEST_OUTPUT_DIR, `${PROBLEM_ID}.ts`);
@@ -40,18 +49,5 @@ describe("Integration: fetch, scrape, create file, run", () => {
 
     assert.ok(fs.existsSync(filePath), "file should exist on disk");
 
-    const { stdout, stderr } = await runTsFile(filePath);
-    assert.ok(stdout.length > 0 || stderr.length > 0, "run should produce output");
-
-    const results = compareOutput(content, stdout);
-    assert.ok(results.length > 0, "should have at least one example result");
-    const failed = results.filter((r) => !r.pass);
-    assert.strictEqual(
-      failed.length,
-      0,
-      failed.length > 0
-        ? `all examples should pass. Failed: ${failed.map((f) => `line ${f.lineIndex}: expected ${f.expected}, got ${f.actual}`).join("; ")}`
-        : "all pass"
-    );
   });
 });
