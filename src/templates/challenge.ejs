@@ -199,9 +199,6 @@
         border: 1px solid rgba(137, 180, 250, 0.45);
         color: #a8c7fa;
       }
-      .tag.tag-notes {
-        border: 1px solid var(--border);
-      }
       .meta-rows {
         display: flex;
         flex-direction: column;
@@ -317,8 +314,7 @@
       <button type="button" class="tag extra tag-action" id="companiesChipBtn" title="Show companies that ask this problem (with frequency)" aria-expanded="false">Companies · <%= companies.length %></button>
       <% } %>
       <button type="button" class="tag extra tag-action tag-hint" id="hintChipBtn" title="Coaching — ask agent (how to think; no full solution)">Hint</button>
-      <button type="button" class="tag extra tag-action tag-analyze" id="analyzeChipBtn" title="Analyze — ask agent (scored review in .hint)">Analyze</button>
-      <button type="button" class="tag extra tag-action tag-notes" id="hintAnalysisBtn" title="Open solution notes (.hint) in the editor">Notes</button>
+      <button type="button" class="tag extra tag-action tag-analyze" id="analyzeChipBtn" title="Analyze — ask agent (review in chat)">Analyze</button>
     </div>
     <% if (hasTopics || hasCompanies) { %>
     <div class="meta-rows focus-chrome">
@@ -353,9 +349,13 @@
     <p class="alt-langs-line focus-chrome" id="altLangsLine" hidden></p>
     <div class="buttons">
       <button class="btn solve" onclick="solve()"><%= typeof hasSolution !== 'undefined' && hasSolution ? 'Open Solution' : 'Solve' %></button>
-      <button class="btn run" onclick="run()">Run</button>
+      <button type="button" class="btn run focus-chrome interview-leetc" onclick="viewSolutions()" title="在浏览器中查看这道题的力扣题解">查看题解</button>
       <% if (isLoggedIn) { %><button class="btn run focus-chrome interview-leetc" onclick="runOnLeetCode()">Run on LeetCode</button><button class="btn submit focus-chrome interview-leetc" onclick="submit()">Submit</button><% } %>
-      <% if (!isSolved) { %><button class="btn run mark-practice-solved" onclick="markAsSolved()" title="Mark this problem as solved">Mark as solved</button><% } %>
+      <% if (isSolved) { %>
+      <button class="btn run mark-practice-solved" onclick="clearProblemStatus()" title="点击恢复为未解决">已解决 ✓ · 撤销</button>
+      <% } else { %>
+      <button class="btn run mark-practice-solved" onclick="markAsSolved()" title="标记这道题为已解决">标记为已解决</button>
+      <% } %>
       <% if (typeof interviewMode !== "undefined" && interviewMode && typeof interviewSolvedInSession !== "undefined" && !interviewSolvedInSession) { %>
       <button class="btn interview-solve" type="button" onclick="markInterviewSolved()" title="Counts only for this interview session">Mark solved (this interview)</button>
       <% } %>
@@ -372,16 +372,12 @@
     </div>
       <% } else { %>
     <div class="custom-input-section focus-chrome" style="margin-bottom: 16px;">
-      <label class="stat-label" for="customInput" style="display:block; margin-bottom: 6px;">Custom test input (for Run on LeetCode)</label>
+      <label class="stat-label" for="customInput" style="display:block; margin-bottom: 6px;">公开示例 / 自定义输入（在力扣运行）</label>
       <textarea id="customInput" rows="3" style="width: 100%; box-sizing: border-box; background: var(--code-bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-family: var(--vscode-editor-font-family, monospace); font-size: 13px;"><%= typeof sampleTestCase !== 'undefined' ? (sampleTestCase || '') : '' %></textarea>
     </div>
       <% } %>
     <% } %>
     <div class="content"><%- content %></div>
-    <details class="focus-chrome" style="margin-top: 24px;">
-      <summary style="cursor: pointer; color: var(--text-muted);">Notes</summary>
-      <textarea id="notes" rows="4" style="width: 100%; box-sizing: border-box; margin-top: 8px; background: var(--code-bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-family: inherit; font-size: 13px;"><%= typeof note !== 'undefined' ? (note || '') : '' %></textarea>
-    </details>
     <script>
       const vscode = acquireVsCodeApi();
       const titleSlug = "<%= titleSlug %>";
@@ -471,12 +467,6 @@
           vscode.postMessage({ event: "agentAnalyze", titleSlug: titleSlug });
         });
       }
-      var analysisChip = document.getElementById("hintAnalysisBtn");
-      if (analysisChip) {
-        analysisChip.addEventListener("click", function () {
-          vscode.postMessage({ event: "openHintAnalysis", titleSlug: titleSlug });
-        });
-      }
       function wireMetaChip(chipId, rowId) {
         var chip = document.getElementById(chipId);
         var row = document.getElementById(rowId);
@@ -510,25 +500,15 @@
         var lang = sel && sel.value ? sel.value : PANEL_LANG;
         vscode.postMessage({ event: "solve", titleSlug: titleSlug, language: lang });
       }
-      function run() { vscode.postMessage({ event: "run", titleSlug }); }
       function runOnLeetCode() {
         var el = document.getElementById("customInput");
-        vscode.postMessage({ event: "runOnLeetCode", titleSlug, customInput: el ? el.value : "" });
+        vscode.postMessage({ event: "runOnLeetCode", titleSlug, customInput: el ? el.value : undefined });
       }
+      function viewSolutions() { vscode.postMessage({ event: "viewSolutions", titleSlug }); }
       function submit() { vscode.postMessage({ event: "submit", titleSlug }); }
+      function clearProblemStatus() { vscode.postMessage({ event: "clearProblemStatus", titleSlug }); }
       function markAsSolved() { vscode.postMessage({ event: "markAsSolved", titleSlug }); }
       function markInterviewSolved() { vscode.postMessage({ event: "markInterviewSolved", titleSlug }); }
-      (function () {
-        var notesEl = document.getElementById("notes");
-        if (!notesEl) return;
-        var debounce;
-        notesEl.addEventListener("input", function () {
-          clearTimeout(debounce);
-          debounce = setTimeout(function () {
-            vscode.postMessage({ event: "saveNote", titleSlug: titleSlug, note: notesEl.value });
-          }, 400);
-        });
-      })();
     </script>
   </body>
 </html>

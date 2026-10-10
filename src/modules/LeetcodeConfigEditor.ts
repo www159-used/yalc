@@ -286,18 +286,18 @@ function getWebviewContent(config: LeetcodeConfig, webview: vscode.Webview): str
   </div>
   <div class="section">
     <h2>Agent prompts (solution file toolbar)</h2>
-    <p style="color: var(--vscode-descriptionForeground); font-size: 12px; margin: 0 0 12px 0;">When a solution file (.ts, .js, .py, .cpp, .java) is open in a LeetCode workspace, toolbar buttons open Cursor chat with these prompts. Edit in .leetcode to customize.</p>
+    <p style="color: var(--vscode-descriptionForeground); font-size: 12px; margin: 0 0 12px 0;">When a solution file (.ts, .js, .py, .cpp, .java, .rs) is open in a LeetCode workspace, toolbar buttons open Cursor chat with these prompts. Edit in .leetcode to customize.</p>
     <div class="field">
       <label>Make runnable button</label>
       <input type="text" id="agentPromptMakeRunnable" value="${escapeHtml(config.agentPromptMakeRunnable ?? "Make this Runnable, do not give solution.")}" placeholder="Make this Runnable, do not give solution." />
     </div>
     <div class="field">
       <label>Hint button (coaching)</label>
-      <input type="text" id="agentPromptHint" value="${escapeHtml(config.agentPromptHint ?? "Load **lcex-dsa-hint** and follow it. Nudge from the problem only—do not read or review my code. Each `coaching` value: one short line; no solution.")}" placeholder="lcex-dsa-hint; problem-only; no code review; one line per field." />
+      <input type="text" id="agentPromptHint" value="${escapeHtml(config.agentPromptHint ?? "Load **lcex-dsa-hint** and follow it. Nudge from the problem only—do not read or review my code. Reply briefly in chat; no solution or note files.")}" placeholder="lcex-dsa-hint; problem-only; no code review; one line per field." />
     </div>
     <div class="field">
       <label>Analyze button (scored review)</label>
-      <input type="text" id="agentPromptAnalyze" value="${escapeHtml(config.agentPromptAnalyze ?? "Load **lcex-dsa-analyze** and follow it. Analyze my current LeetCode solution implementation.")}" placeholder="Load lcex-dsa-analyze; fills Analysis in .hint JSON." />
+      <input type="text" id="agentPromptAnalyze" value="${escapeHtml(config.agentPromptAnalyze ?? "Load **lcex-dsa-analyze** and follow it. Analyze my current LeetCode solution implementation.")}" placeholder="Load lcex-dsa-analyze; replies in chat." />
     </div>
     <div class="field">
       <label>Explain selection (base prompt)</label>
@@ -309,7 +309,7 @@ function getWebviewContent(config: LeetcodeConfig, webview: vscode.Webview): str
     <div class="field">
       <label>Open problem from sidebar (Problemset / Study plans / Lists / QOTD)</label>
       <select id="problemViewMode">
-        <option value="ui" ${(config.problemViewMode ?? "ui") === "ui" ? "selected" : ""}>UI — webview (run, submit, notes)</option>
+        <option value="ui" ${(config.problemViewMode ?? "ui") === "ui" ? "selected" : ""}>UI — webview (run, submit)</option>
         <option value="text" ${config.problemViewMode === "text" ? "selected" : ""}>Plain text — statement only (editor tab)</option>
       </select>
     </div>

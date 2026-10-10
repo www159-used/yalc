@@ -6,9 +6,9 @@
 
 **Solve LeetCode in your editor. Track progress. Run timed interviews.**
 
-A VS Code and Cursor extension with problem browsing, template generation, inline example runners, XP and streak tracking, and timed interview workflows — with optional cloud sync.
+A VS Code and Cursor extension with problem browsing, template generation, LeetCode-hosted example execution, XP and streak tracking, and timed interview workflows — with optional cloud sync.
 
-Every save now surfaces four layers of inline feedback as ghost text on the relevant line: interview anti-pattern lint, a constraint-aware complexity budget (🟢/🟡/🔴), adversarial edge-case probes, and live example results. No popups; hover any decoration to read details or click "turn off" for that feature.
+Saves can show static inline feedback: interview anti-pattern lint, a constraint-aware complexity budget (🟢/🟡/🔴), and advisory edge-case probes. No popups; hover any decoration to read details or click "turn off" for that feature.
 
 [![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/NikkyAmresh.leetcode-practice?label=VS%20Marketplace&logo=visualstudiocode&color=007ACC)](https://marketplace.visualstudio.com/items?itemName=NikkyAmresh.leetcode-practice)
 [![Open VSX Version](https://img.shields.io/open-vsx/v/nikkyamresh/leetcode-practice?label=Open%20VSX&logo=eclipseide&color=A60EE9)](https://open-vsx.org/extension/nikkyamresh/leetcode-practice)
@@ -17,8 +17,6 @@ Every save now surfaces four layers of inline feedback as ghost text on the rele
 
 <br/>
 
-<!-- TODO: replace with a short demo GIF showing: open sidebar → pick problem → generate file → run examples → mark solved -->
-<img src="https://raw.githubusercontent.com/NikkyAmresh/lcex/main/screenshots/02-problem-view-run-terminal.png" alt="Problem view with inline run in terminal" width="900" />
 
 </div>
 
@@ -40,22 +38,18 @@ The extension activates automatically when a workspace contains a `.leetcode` fi
 2. Create a `.leetcode` file in the workspace root (an empty `{}` is enough).
 3. Run **LeetCode: Sign In** from the command palette.
 4. Open the **LeetCode** sidebar and pick a problem.
-5. Click **Create File**, solve, then run with **LeetCode: Run Examples** or <kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>.
+5. Click **Solve**, write your solution, then use **Run on LeetCode** for public examples or **Submit** for the full judge suite.
 
 ## Features
 
-- **Browse and solve** — Full problemset, study plans, curated problem lists, and Question of the Day in sidebar views. Rich problem webview with "Create File" in TypeScript, JavaScript, Python, C++, or Java.
+- **Browse and solve** — Full problemset, study plans, curated problem lists, and Question of the Day in sidebar views. Rich problem webview with "Create File" in TypeScript, JavaScript, Python, C++, Java, or Rust.
 - **Companies sidebar** — Browse problems grouped by 463 companies with per-company **frequency**, global **acceptance rate**, color-coded difficulty dots, and topics in the row tooltip. Click to open in the editor. Topics + companies are also surfaced inside the problem webview as collapsible chips. Toggle via `leetcodePractice.showCompanies`.
 - **Inline feedback on save** — Every save runs all enabled features at once, rendered as ghost text on the relevant line with a trusted-markdown hover and a one-click "turn off" link per feature. No popups.
   - **Interview anti-pattern lint** — flags `mutate-input`, built-in `.sort()` on sorting problems, magic numbers (`26` / `128` / `1000000007`), and indented debug `print`/`console.log`/`System.out.println` across py/ts/js/cpp/java. Emits a real VS Code diagnostic (squiggle + Problems panel) and an inline hint. Suppressible per line with `// lcex-lint-ignore: <rule>`.
   - **Complexity budget** — parses the problem's `Constraints:` section, derives a target Big-O from the largest size cap, estimates loop nesting by indent, and paints 🟢 / 🟡 / 🔴 on the function signature plus a `nest k× → O(nᵏ)` badge on each loop.
   - **Adversarial edge-case probes** — turns parsed constraints into candidate edge cases (empty, single, max-size, boundary values, negatives, zeros, charset / sorted / distinct flags) and surfaces them inline on the signature. Advisory in this release.
-  - **Run examples on save** — parses `// Expected:` / `# expected:` comments and diffs against `console.log` / `print` output; results render inline as `✓` or `✗ expected X · got Y` with a dedicated timeout message for >15s runs. Also available on-demand.
-- **Database problems (SQL and pandas)** — LeetCode's Database category is detected automatically, and the language picker switches to **MySQL** or **pandas**. Generated files carry the table schemas, seeded example rows, and expected output as comments. `LeetCode: Run Query Locally` creates the problem's tables, seeds them from its own example dataset, runs your solution, and diffs the result grid against the expected table (order-insensitive when the statement says "in any order"), showing both grids side by side. MySQL runs on SQLite compiled to WebAssembly with MySQL compatibility shims, downloaded once to `~/.lcex/engines/` with your consent and verified against pinned hashes; pandas runs through your `python3`.
-- **Run in terminal** — Execute the current solution file end-to-end in the integrated terminal.
 - **Progress tracking** — Solved / attempting / cleared states, daily streaks, XP and levels, daily goals, and a stats dashboard with trends.
 - **Interview mode** — Ad-hoc timed sessions (45 / 60 / 180 min) or planned `.lcInterview` mocks. Focus layout hides hints; each attempt produces a `.lcireport` snapshot.
-- **Solution notes and agent actions** — Capture notes in `.hint` files; trigger **Make Runnable**, **Hint**, and **Explain My Code** from the editor. The `Hint` action writes a JSON sidecar (`~/.lcex/hint-context/<slug>.json`) with the static complexity estimate, parsed problem-size budget, verdict, and top hotspot, so the **lcex-dsa-hint** skill tailors the nudge to what you actually wrote.
 - **DSA practice loop** *(opt-in, all off by default)* — Five features that go beyond "did your sample pass?":
   - **Spaced-repetition bug review** (`leetcodePractice.bugReview.enabled`) — failing examples are snapshotted to `~/.lcex/bug-reviews.json` and resurface as re-attempt drills 3 / 7 / 30 / 90 days later; status bar shows `N reviews due`.
   - **Differential fuzzer** (`leetcodePractice.fuzzer.enabled`) — define `bruteForce` + `fuzzInputs(seed)` alongside your solution; the fuzzer reports the first divergence as a counterexample (and snapshots it to the SR queue if bug-review is on).
@@ -104,12 +98,10 @@ The extension activates automatically when a workspace contains a `.leetcode` fi
       <a href="https://raw.githubusercontent.com/NikkyAmresh/lcex/main/screenshots/07-time-solved-breakdown.png"><img src="https://raw.githubusercontent.com/NikkyAmresh/lcex/main/screenshots/07-time-solved-breakdown.png" alt="Time and solved breakdown" /></a>
       <br/><sub><b>Daily time and solved breakdown</b></sub>
     </td>
-    <td align="center">
-      <a href="https://raw.githubusercontent.com/NikkyAmresh/lcex/main/screenshots/08-solution-notes-hint-analyze.png"><img src="https://raw.githubusercontent.com/NikkyAmresh/lcex/main/screenshots/08-solution-notes-hint-analyze.png" alt="Solution notes, hint, analyze" /></a>
-      <br/><sub><b>Solution notes with hint and analyze</b></sub>
-    </td>
   </tr>
 </table>
+
+Rust solutions use numbered `.rs` files and LeetCode's judge. For rust-analyzer, the extension maintains a generated root `Cargo.toml` and `.leetcode-rust/modules.rs` (an existing user-owned Cargo manifest is not overwritten) and adds it to the workspace's `rust-analyzer.linkedProjects`. Each problem is an ordinary file module, so rust-analyzer can show Run Test beside `#[test]`. A generated block in each solution provides `Solution`, `ListNode`, and `TreeNode` when needed, enabled only by the local Cargo feature. The block is stripped before LeetCode Run/Submit. Save Rust edits to refresh this support; unsaved files are left alone. Empty generated functions contain `todo!()` until implemented. This editor integration requires a local Rust toolchain; Run and Submit still execute on LeetCode.
 
 ## Commands
 
@@ -129,11 +121,11 @@ All commands are available under the **LeetCode** category in the command palett
 
 ### Running
 
-| Command | Shortcut | Description |
-| --- | --- | --- |
-| `LeetCode: Run Examples` | — | Parse `// Expected:` comments and diff results inline |
-| `LeetCode: Run Query Locally` | — | Database problems: run against seeded tables and diff the result grid |
-| `LeetCode: Run in Terminal` | <kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> | Execute the current solution file |
+Use **Run on LeetCode** in the problem panel to run all public examples returned by LeetCode, or edit the input to run custom cases. Each case shows the judge's actual result, expected result, and pass/fail verdict.
+
+Use **Submit** to run the platform's full judge suite. Public examples are not the hidden submission test suite.
+
+Solution files contain the official function/class stub and problem header. The extension does not append local example drivers, offer a local Run command, or execute examples on save. Static lint and complexity hints remain available.
 
 ### Inline feedback
 
@@ -146,7 +138,6 @@ All commands are available under the **LeetCode** category in the command palett
 | `LeetCode: Toggle Interview Lint on Save` | — | Flip `leetcodePractice.lint.enabled` |
 | `LeetCode: Toggle Complexity Budget on Save` | — | Flip `leetcodePractice.complexityBudget.enabled` |
 | `LeetCode: Toggle Edge-Case Probes on Save` | — | Flip `leetcodePractice.adversarialTests.enabled` |
-| `LeetCode: Toggle Run Examples on Save` | — | Flip `leetcodePractice.runExamplesOnSave.enabled` |
 | `LeetCode: Toggle All Inline Decorations` | — | Master kill switch for every lcex decoration |
 
 ### DSA practice loop (opt-in)
@@ -215,7 +206,6 @@ All commands are available under the **LeetCode** category in the command palett
 | `leetcodePractice.lint.enabled` | Run interview anti-pattern lint on save (default: on) |
 | `leetcodePractice.complexityBudget.enabled` | Derive target Big-O from constraints and paint 🟢/🟡/🔴 on save (default: on) |
 | `leetcodePractice.adversarialTests.enabled` | Surface edge-case probes on save (default: off — run `LeetCode: Surface Adversarial Edge Cases` on demand) |
-| `leetcodePractice.runExamplesOnSave.enabled` | Run example lines automatically on save (default: on) |
 | `leetcodePractice.runExamples.sandbox` | Sandbox solution execution: `auto` (sandbox on macOS, normal elsewhere), `sandbox` (force), `off` (default: `auto`) |
 | `leetcodePractice.bugReview.enabled` | Spaced-repetition queue of failed examples; resurfaces 3/7/30/90 days later (default: off) |
 | `leetcodePractice.fuzzer.enabled` | Differential fuzzer vs `bruteForce` + `fuzzInputs(seed)` (default: off) |
@@ -280,7 +270,6 @@ Any setting above can be overridden per-workspace in the `.leetcode` file. Works
 - A C++ toolchain — optional, for C++ solutions
 - A JDK (`javac` + `java`) — optional, for Java solutions
 - Python 3 with pandas — optional, for pandas solutions to database problems
-- Network access on first local SQL run — optional, to fetch the WebAssembly SQLite engine into `~/.lcex/engines/`
 
 ## Development
 

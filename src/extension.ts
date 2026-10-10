@@ -1,3 +1,4 @@
+import { registerRustWorkspaceSupport } from "./modules/RustWorkspace";
 import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
@@ -45,7 +46,7 @@ import {
   buildInterviewReportViewModel,
   interviewReportViewModelFromSnapshotFile,
   refreshStatsData,
-  runTsNodeInTerminal,
+  refreshProblemStatus,
   PROBLEM_WEBVIEW_VIEWTYPE,
   registerProblemPlainTextDocumentProvider,
   restoreProblemPanel,
@@ -53,36 +54,19 @@ import {
   notifyAllProblemPanelsUiMode,
   getCachedProblemDifficulty,
   getCachedProblemId,
-  openHintFileForProblem,
-  tryOpenExistingHintFile,
   openOrCreateSolution,
   plainProblemSlugFromUri,
-  resolveDbSolutionFile,
   getCachedProblem as getProblemFromViewCache,
 } from "./modules/ProblemView";
 import { isDatabaseProblem } from "./modules/database/DbProblem";
-import { dbRunBlocker, runDatabaseSolution, summarizeOutcome } from "./modules/database/DbRunner";
-import { showDbRunResult } from "./modules/database/DbRunView";
-import {
-  ENGINE_DOWNLOAD_BYTES,
-  ENGINE_LABEL,
-  ensureEngineInstalled,
-  isEngineInstalled,
-} from "./modules/database/SqlEngine";
-import { HintEditorProvider } from "./modules/HintEditorProvider";
-import { runExamples as runExamplesImpl, parseExampleBlocks, type ExampleResult } from "./modules/ExampleRunner";
+import { parseExampleBlocks } from "./modules/ExampleRunner";
 import { runFuzz } from "./modules/Fuzzer";
 import { runEmpiricalFit, type ComplexityClass } from "./modules/EmpiricalFit";
 import { renderRecursionTreeHtml, runRecursionTrace } from "./modules/RecursionVisualizer";
 import { renderIterativeTreeHtml, runIterativeTrace } from "./modules/IterativeVisualizer";
 import {
-  advanceOnPass as advanceBugReviewOnPass,
   countDueReviews,
-  getReviewById as getBugReviewById,
-  lapseOnFail as lapseBugReviewOnFail,
   listDueReviews,
-  recordFailure as recordBugReviewFailure,
-  type BugReview,
 } from "./modules/BugReviewStore";
 import {
   ALGORITHM_SOLUTION_EXTENSIONS,
@@ -178,8 +162,6 @@ import { defaultInterviewNameFromDate, parseLcInterviewFile, serializeLcIntervie
 import { LeetcodeInterviewEditorProvider } from "./modules/LcInterviewEditorProvider";
 import { LcInterviewReportEditorProvider } from "./modules/LcInterviewReportEditorProvider";
 import { ensureCursorLcexPluginInstalled } from "./modules/CursorLcexPluginInstall";
-import { ensureLcexBundledFontsInstalled } from "./modules/LcexFontInstall";
-import { applyLcexEditorFontAndTokenSettingsIfNeeded } from "./modules/LeetcodePracticeEditorSettings";
 import {
   applyCloudStatsMerge,
   fetchCloudStatsDocument,
@@ -239,8 +221,8 @@ const IS_SOLUTION_FILE_CONTEXT = "leetcodePractice.isSolutionFile";
 
 const SOLUTION_EXTENSIONS = new Set(SOLUTION_FILE_EXTENSIONS);
 
-// Java solution files are named after their entry class (`LCexMain2.java`); see LanguageStrategy.
-const NUMBERED_FILE_PATTERN = /^(?:LCexMain)?(\d+)\.(ts|js|py|cpp|java)$/i;
+// Recognize numbered solution files and legacy Java runner filenames.
+const NUMBERED_FILE_PATTERN = /^(?:LCexMain)?(\d+)\.(ts|js|py|cpp|java|rs)$/i;
 
 /** Shows problem name as tooltip on numbered solution files in LeetCode workspaces. */
 class LeetCodeFileDecorationProvider implements vscode.FileDecorationProvider {
@@ -347,7 +329,7 @@ function updateAgentStatusBarVisibility(): void {
     if (visible) {
       statusBarHint.text = "$(lightbulb) Hint";
       statusBarHint.tooltip =
-        "Coaching: open .hint if it exists, else ask the agent (lcex-dsa-hint). Configure in .leetcode.";
+        "Coaching: ask the agent (lcex-dsa-hint). Configure in .leetcode.";
       statusBarHint.command = "leetcode-practice.agentHint";
       statusBarHint.show();
     } else {
@@ -358,7 +340,7 @@ function updateAgentStatusBarVisibility(): void {
     if (visible) {
       statusBarAnalyze.text = "$(graph) Analyze";
       statusBarAnalyze.tooltip =
-        "Scored review: open .hint if it exists, else ask the agent (lcex-dsa-analyze). Configure in .leetcode.";
+        "Scored review: ask the agent (lcex-dsa-analyze). Configure in .leetcode.";
       statusBarAnalyze.command = "leetcode-practice.agentAnalyze";
       statusBarAnalyze.show();
     } else {
@@ -1184,8 +1166,6 @@ async function applyLeetcodeThemeIfNeeded(): Promise<void> {
 async function applyLeetcodeWorkspaceAppearanceIfNeeded(context: vscode.ExtensionContext): Promise<void> {
   await applyLeetcodeThemeIfNeeded();
   if (!computeHasLeetcodeMarker()) return;
-  await ensureLcexBundledFontsInstalled(context.extensionPath);
-  await applyLcexEditorFontAndTokenSettingsIfNeeded();
 }
 
 let extensionContextForBars: vscode.ExtensionContext | null = null;
@@ -1228,6 +1208,7 @@ export function activate(context: vscode.ExtensionContext): void {
     },
   });
 
+  registerRustWorkspaceSupport(context);
   const webviewOptsHolder: { current?: OpenProblemWebviewOpts } = {};
   const getWebviewOpts = () => webviewOptsHolder.current;
   context.subscriptions.push(
@@ -1351,13 +1332,6 @@ export function activate(context: vscode.ExtensionContext): void {
       { webviewOptions: { retainContextWhenHidden: true } }
     )
   );
-  context.subscriptions.push(
-    vscode.window.registerCustomEditorProvider(
-      HintEditorProvider.viewType,
-      new HintEditorProvider(context),
-      { webviewOptions: { retainContextWhenHidden: true } }
-    )
-  );
 
   void ensureCursorLcexPluginInstalled(context).catch((e) => {
     Logger.logError("Cursor LCX plugin install skipped", e);
@@ -1407,16 +1381,6 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   // Late-bound; assigned below after `getCachedProblem` / `resolveSlugForUri` are defined.
   let writeHintLadderContext: (slug?: string) => Promise<string | null> = async () => null;
-  /**
-   * Runs a database solution locally. Resolves false when the target is not one.
-   * `quiet` suppresses prompts and never opens a results panel, for on-save runs.
-   */
-  let runDatabaseSolutionLocally: (args?: {
-    titleSlug?: string;
-    /** Pin the solution file instead of taking whatever editor is active. */
-    fileUri?: vscode.Uri;
-    quiet?: boolean;
-  }) => Promise<boolean> = async () => false;
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
@@ -1431,17 +1395,11 @@ export function activate(context: vscode.ExtensionContext): void {
           vscode.window.showWarningMessage("LeetCode workspace (.leetcode) required. Open a workspace with a .leetcode file.");
           return;
         }
-        if (!args?.forceAgent) {
-          const opened = await tryOpenExistingHintFile(context, getProvider, args?.titleSlug);
-          if (opened) {
-            return;
-          }
-        }
         const folders = vscode.workspace.workspaceFolders ?? [];
         const config = getEffectiveConfig(folders);
         const basePrompt =
           config.agentPromptHint?.trim() ||
-          "Load **lcex-dsa-hint** and follow it. Nudge from the problem only—do not read or review my code. Each `coaching` value: one short line; no solution.";
+          "Load **lcex-dsa-hint** and follow it. Nudge from the problem only—do not read or review my code. Reply briefly in chat; no solution or note files.";
         // const ctxPath = await writeHintLadderContext(args?.titleSlug);
         // const prompt = ctxPath
         //   ? `${basePrompt}\n\nIf the **lcex-dsa-hint** skill supports it, load auto-detected user state from \`${ctxPath}\` (JSON: static complexity, problem-size budget, verdict, top hotspot) and tailor \`coaching.nextFocus\` to the verdict. Otherwise ignore.`
@@ -1464,36 +1422,12 @@ export function activate(context: vscode.ExtensionContext): void {
           vscode.window.showWarningMessage("LeetCode workspace (.leetcode) required. Open a workspace with a .leetcode file.");
           return;
         }
-        if (!args?.forceAgent) {
-          const opened = await tryOpenExistingHintFile(context, getProvider, args?.titleSlug);
-          if (opened) {
-            return;
-          }
-        }
         const folders = vscode.workspace.workspaceFolders ?? [];
         const config = getEffectiveConfig(folders);
         const prompt =
           config.agentPromptAnalyze?.trim() ||
           "Load **lcex-dsa-analyze** and follow it. Analyze my current LeetCode solution implementation.";
         await openChatWithPrompt(prompt);
-      }
-    )
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "leetcode-practice.openHintAnalysis",
-      async (args?: { titleSlug?: string }) => {
-        trackAnalytics("command_invoked", "auto", "open_hint_analysis");
-        if (getInterviewSession(context.globalState)) {
-          vscode.window.showWarningMessage("Solution notes are disabled during Interview mode.");
-          return;
-        }
-        if (!shouldAutoApplyTheme()) {
-          vscode.window.showWarningMessage("LeetCode workspace (.leetcode) required. Open a workspace with a .leetcode file.");
-          return;
-        }
-        await openHintFileForProblem(context, getProvider, args?.titleSlug);
       }
     )
   );
@@ -1971,116 +1905,6 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
     })
   );
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand("leetcode-practice.runExamples", async () => {
-      const editor = vscode.window.activeTextEditor;
-      const uri = editor?.document.uri;
-      const ext = uri ? path.extname(uri.fsPath) : "";
-      if (!editor || !uri || !SOLUTION_FILE_EXTENSIONS.includes(ext.toLowerCase())) {
-        vscode.window.setStatusBarMessage(
-          "lcex: open a .ts/.js/.py/.cpp/.java/.sql solution file to run examples",
-          5000
-        );
-        return;
-      }
-      // Database problems have no `// Expected:` example lines: they run against
-      // seeded tables and diff a result grid instead.
-      if (await runDatabaseSolutionLocally()) return;
-      const lang = bucketLanguage(ext.replace(".", ""));
-
-      clearInlineDecorations(editor, "lcex.runExamples");
-
-      if (editor.document.isDirty) {
-        await editor.document.save();
-      }
-
-      try {
-        const results = await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Window,
-            title: "lcex: running examples…",
-          },
-          () => runExamplesImpl(uri)
-        );
-        if (results.length === 0) {
-          trackAnalytics("example_run", "command_palette", "run_examples", { language: lang, result: "ok" });
-          vscode.window.setStatusBarMessage(
-            "lcex: no example output lines found in this file",
-            5000
-          );
-          return;
-        }
-
-        const exampleToggleFooter =
-          "\n\n[turn off on-save runs](command:leetcode-practice.toggleRunExamplesOnSave) · [hide all](command:leetcode-practice.toggleInlineDecorations)";
-        const items: InlineItem[] = results.map((r) => {
-          const line = Math.max(0, r.lineIndex - 1);
-          if (r.pass) {
-            const tail = r.expected === null ? ` → ${r.actual}` : "  ✓";
-            return {
-              line,
-              text: tail,
-              severity: r.expected === null ? "muted" : "success",
-              hoverMarkdown:
-                `**lcex: example passed**\n\n- actual: \`${r.actual || "(empty)"}\`${r.expected !== null ? `\n- expected: \`${r.expected}\`` : ""}` +
-                exampleToggleFooter,
-            };
-          }
-          const exp = r.expected ?? "?";
-          return {
-            line,
-            text: `  ✗ expected ${exp} · got ${r.actual || "∅"}`,
-            severity: "error",
-            hoverMarkdown:
-              `**lcex example failed**\n\n- expected: \`${exp}\`\n- got: \`${r.actual || "(empty)"}\`` +
-              exampleToggleFooter,
-          };
-        });
-        applyInlineDecorations(editor, "lcex.runExamples", items);
-
-        if (!handleBugReviewScratchResults(uri.fsPath, results)) {
-          recordBugReviewsFromExampleResults(editor.document, results);
-        }
-
-        const passed = results.filter((r) => r.pass).length;
-        const total = results.length;
-        const summary =
-          passed === total
-            ? `lcex: ${passed}/${total} examples passed ✓`
-            : `lcex: ${passed}/${total} passed · ${total - passed} failed ✗`;
-        vscode.window.setStatusBarMessage(summary, 6000);
-        trackAnalytics(
-          "example_run",
-          "command_palette",
-          "run_examples",
-          { language: lang, result: passed === total ? "ok" : "err" }
-        );
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        const isTimeout = /\b(ETIMEDOUT|SIGTERM|SIGKILL|timeout|timed out|killed)\b/i.test(msg);
-        const blocks = parseExampleBlocks(editor.document.getText(), languageFromFileExtension(ext) ?? "typescript");
-        const firstBlockLine = blocks[0]?.callLine ? blocks[0].callLine - 1 : 0;
-        const label = isTimeout ? "✗ timeout (>15s)" : "✗ runtime error";
-        applyInlineDecorations(editor, "lcex.runExamples", [
-          {
-            line: firstBlockLine,
-            text: `  ${label} — hover for details`,
-            severity: "error",
-            hoverMarkdown:
-              (isTimeout
-                ? `**lcex: execution timed out**\n\nThe solution ran longer than 15 seconds and was terminated.\n\n\`\`\`\n${msg}\n\`\`\``
-                : `**lcex: execution failed**\n\n\`\`\`\n${msg}\n\`\`\``) +
-              "\n\n[turn off on-save runs](command:leetcode-practice.toggleRunExamplesOnSave) · [hide all](command:leetcode-practice.toggleInlineDecorations)",
-          },
-        ]);
-        vscode.window.setStatusBarMessage(
-          isTimeout ? "lcex: example run timed out (>15s)" : "lcex: example run failed (hover for details)",
-          6000
-        );
-      }
-    })
-  );
-
   // ─── lcex decoration orchestrator ─────────────────────────────────────
   const lintDiagnostics = vscode.languages.createDiagnosticCollection("lcex-lint");
   context.subscriptions.push(lintDiagnostics);
@@ -2096,7 +1920,6 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
   const isLintEnabled = () => cfg("lint.enabled", true);
   const isComplexityEnabled = () => cfg("complexityBudget.enabled", true);
   const isAdversarialEnabled = () => cfg("adversarialTests.enabled", false);
-  const isRunExamplesOnSaveEnabled = () => cfg("runExamplesOnSave.enabled", true);
   const isBugReviewEnabled = () => cfg("bugReview.enabled", false);
   const isFuzzerEnabled = () => cfg("fuzzer.enabled", false);
   const isEmpiricalFitEnabled = () => cfg("empiricalFit.enabled", false);
@@ -2121,158 +1944,9 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
     );
   };
 
-  const SQL_ENGINE_CONSENT_KEY = "leetcode-practice.sqlEngineConsent";
-
-  /** Asks once before the first engine download, then remembers the answer. */
-  const ensureSqlEngineConsent = async (): Promise<boolean> => {
-    if (await isEngineInstalled()) return true;
-    if (context.globalState.get<boolean>(SQL_ENGINE_CONSENT_KEY)) return true;
-    const kb = Math.round(ENGINE_DOWNLOAD_BYTES / 1024);
-    const choice = await vscode.window.showInformationMessage(
-      `Running SQL locally needs ${ENGINE_LABEL}: a one-time ${kb} KB download into ~/.lcex/engines, verified against pinned hashes. Nothing is bundled in the extension.`,
-      "Download",
-      "Not now"
-    );
-    if (choice !== "Download") return false;
-    await context.globalState.update(SQL_ENGINE_CONSENT_KEY, true);
-    return true;
-  };
-
-  runDatabaseSolutionLocally = async (args) => {
-    const targetUri = args?.fileUri;
-    const editor = targetUri
-      ? vscode.window.visibleTextEditors.find(
-          (e) => e.document.uri.toString() === targetUri.toString()
-        )
-      : vscode.window.activeTextEditor;
-    const activeUri = targetUri ?? editor?.document.uri;
-    const slug =
-      args?.titleSlug?.trim() ||
-      (activeUri?.scheme === "file" ? resolveSlugForUri(activeUri) : undefined);
-    if (!slug) return false;
-    const problem = await getCachedProblem(slug);
-    if (!problem || !isDatabaseProblem(problem)) return false;
-
-    const quiet = args?.quiet === true;
-
-    const blocker = dbRunBlocker(problem);
-    if (blocker) {
-      if (!quiet) vscode.window.showWarningMessage(`lcex: ${blocker}`);
-      return true;
-    }
-
-    // Prefer the file in front of the user when it belongs to this problem;
-    // otherwise fall back to the solution file for the selected mode.
-    const activeExt = activeUri ? path.extname(activeUri.fsPath).toLowerCase() : "";
-    const activeIsDbSolution = activeExt === ".sql" || activeExt === ".py";
-    let filePath: string;
-    let language: "mysql" | "pandas";
-    if (editor && activeUri && activeIsDbSolution && resolveSlugForUri(activeUri) === slug) {
-      filePath = activeUri.fsPath;
-      language = activeExt === ".sql" ? "mysql" : "pandas";
-      if (editor.document.isDirty) await editor.document.save();
-    } else {
-      const resolved = await resolveDbSolutionFile(context, problem);
-      if (!resolved.exists) {
-        if (quiet) return true;
-        await openOrCreateSolution(context, problem, resolved.language);
-        vscode.window.setStatusBarMessage(
-          "lcex: created the solution file, run again once you have something to check",
-          6000
-        );
-        return true;
-      }
-      filePath = resolved.path;
-      language = resolved.language;
-    }
-
-    if (language === "mysql") {
-      // On-save runs must not pop a consent dialog; they wait for an explicit run.
-      if (quiet && !(await isEngineInstalled())) return true;
-      if (!(await ensureSqlEngineConsent())) {
-        vscode.window.setStatusBarMessage(
-          "lcex: local SQL engine not installed, run cancelled",
-          5000
-        );
-        return true;
-      }
-    }
-
-    let source: string;
-    try {
-      const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(filePath));
-      source = Buffer.from(bytes).toString("utf8");
-    } catch {
-      if (!quiet) vscode.window.showWarningMessage(`lcex: could not read ${path.basename(filePath)}`);
-      return true;
-    }
-
-    const outcome = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Window, title: "lcex: running against local tables…" },
-      (progress) =>
-        runDatabaseSolution(problem, language, source, filePath, (m) =>
-          progress.report({ message: m })
-        )
-    );
-
-    await showDbRunResult(context, problem, outcome, { createIfMissing: !quiet });
-    vscode.window.setStatusBarMessage(summarizeOutcome(outcome), 8000);
-
-    // Inline verdict on the solution file, matching how example runs report.
-    const target = vscode.window.visibleTextEditors.find(
-      (e) => path.resolve(e.document.uri.fsPath) === path.resolve(filePath)
-    );
-    if (target) {
-      clearInlineDecorations(target, "lcex.runDbQuery");
-      const cmp = outcome.comparison;
-      const text = outcome.error
-        ? `  ✗ ${outcome.error}`
-        : cmp?.pass
-          ? `  ✓ matches expected output (${cmp.actualRowCount} row${cmp.actualRowCount === 1 ? "" : "s"})`
-          : `  ✗ ${cmp?.reason ?? "no comparison"}`;
-      applyInlineDecorations(target, "lcex.runDbQuery", [
-        {
-          line: Math.max(0, target.document.lineCount - 1),
-          text,
-          severity: outcome.error ? "error" : cmp?.pass ? "success" : "error",
-          hoverMarkdown:
-            `**lcex: local ${language === "mysql" ? "SQL" : "pandas"} run**\n\n` +
-            (outcome.error ? `${outcome.error}\n` : `${text.trim()}\n`) +
-            "\n[hide all](command:leetcode-practice.toggleInlineDecorations)",
-        },
-      ]);
-    }
-
-    trackAnalytics("example_run", quiet ? "auto" : "command_palette", "run_db_local", {
-      language: bucketLanguage(language),
-      result: outcome.comparison?.pass ? "ok" : "err",
-    });
-    return true;
-  };
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "leetcode-practice.runQueryLocally",
-      async (args?: { titleSlug?: string }) => {
-        if (await runDatabaseSolutionLocally(args)) return;
-        vscode.window.showWarningMessage(
-          "lcex: open a database problem's .sql or pandas .py solution file first."
-        );
-      }
-    )
-  );
-
   const BUG_REVIEW_SCRATCH_DIR = path.join(require("os").homedir(), ".lcex", "reviews");
   const bugReviewScratchPath = (id: string, ext: string): string =>
     path.join(BUG_REVIEW_SCRATCH_DIR, `bug-${id}${ext}`);
-  const parseBugReviewIdFromPath = (fsPath: string): string | undefined => {
-    const base = path.basename(fsPath);
-    const m = /^bug-([A-Za-z0-9_-]+)\.[A-Za-z0-9]+$/.exec(base);
-    if (!m) return undefined;
-    if (path.dirname(fsPath) !== BUG_REVIEW_SCRATCH_DIR) return undefined;
-    return m[1];
-  };
-
   const refreshBugReviewStatusBar = (): void => {
     if (!bugReviewStatusBar) return;
     if (!isBugReviewEnabled()) {
@@ -2287,82 +1961,6 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
     bugReviewStatusBar.text = `$(history) ${due} review${due === 1 ? "" : "s"} due`;
     bugReviewStatusBar.tooltip = `lcex bug-review queue: ${due} item${due === 1 ? "" : "s"} due. Click to open the next one.`;
     bugReviewStatusBar.show();
-  };
-
-  const sliceSourceSnippet = (content: string, lineIndex: number): string => {
-    const lines = content.split("\n");
-    const start = Math.max(0, lineIndex - 1 - 5);
-    const end = Math.min(lines.length, lineIndex + 5);
-    return lines.slice(start, end).join("\n");
-  };
-
-  const recordBugReviewsFromExampleResults = (
-    doc: vscode.TextDocument,
-    results: ExampleResult[]
-  ): void => {
-    if (!isBugReviewEnabled()) return;
-    // Skip while inside a scratch bug-review file — those use advance/lapse instead.
-    if (parseBugReviewIdFromPath(doc.uri.fsPath)) return;
-    const failed = results.filter((r) => !r.pass && r.expected !== null);
-    if (failed.length === 0) return;
-    const ext = path.extname(doc.uri.fsPath).toLowerCase();
-    const lang = languageFromFileExtension(ext) ?? "typescript";
-    const slug = resolveSlugForUri(doc.uri);
-    const lines = doc.getText().split("\n");
-    void (async () => {
-      let title: string | undefined;
-      try {
-        const cached = await getCachedProblem(slug);
-        title = cached?.title;
-      } catch {
-        /* best-effort */
-      }
-      for (const r of failed) {
-        const idx0 = Math.max(0, r.lineIndex - 1);
-        const inputLine = (lines[idx0] ?? "").trim();
-        if (!inputLine) continue;
-        try {
-          recordBugReviewFailure({
-            titleSlug: slug,
-            problemTitle: title,
-            language: lang,
-            source: "examples",
-            input: inputLine,
-            expected: r.expected ?? "",
-            actual: r.actual ?? "",
-            sourceSnippet: sliceSourceSnippet(doc.getText(), r.lineIndex),
-            fullSource: doc.getText(),
-          });
-        } catch (e) {
-          Logger.logError("bug-review record failed", e);
-        }
-      }
-      refreshBugReviewStatusBar();
-    })();
-  };
-
-  const handleBugReviewScratchResults = (
-    fsPath: string,
-    results: ExampleResult[]
-  ): BugReview | undefined => {
-    const id = parseBugReviewIdFromPath(fsPath);
-    if (!id) return undefined;
-    if (results.length === 0) return undefined;
-    const allPass = results.every((r) => r.pass);
-    const updated = allPass ? advanceBugReviewOnPass(id) : lapseBugReviewOnFail(id);
-    refreshBugReviewStatusBar();
-    if (updated && allPass) {
-      vscode.window.setStatusBarMessage(
-        `lcex bug-review: nailed it — next due in ${updated.intervalDays} days`,
-        7000
-      );
-    } else if (updated) {
-      vscode.window.setStatusBarMessage(
-        `lcex bug-review: still wrong — resurfacing in 3 days (lapses: ${updated.lapseCount})`,
-        7000
-      );
-    }
-    return updated;
   };
 
   const FEATURE_FOOTER = (label: string, toggleCmd: string) =>
@@ -2452,6 +2050,7 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
           case "python": return ".py";
           case "cpp": return ".cpp";
           case "java": return ".java";
+          case "rust": return ".rs";
           default: return ".ts";
         }
       })();
@@ -2507,8 +2106,8 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
         return;
       }
       const lang = languageFromFileExtension(ext) ?? "typescript";
-      if (lang === "cpp" || lang === "java") {
-        const label = lang === "cpp" ? "C++" : "Java";
+      if (lang === "cpp" || lang === "java" || lang === "rust") {
+        const label = lang === "cpp" ? "C++" : lang === "rust" ? "Rust" : "Java";
         vscode.window.setStatusBarMessage(`lcex: complexity fitter doesn't support ${label} yet`, 5000);
         return;
       }
@@ -2596,8 +2195,8 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
         return;
       }
       const lang = languageFromFileExtension(ext) ?? "typescript";
-      if (lang === "cpp" || lang === "java") {
-        const label = lang === "cpp" ? "C++" : "Java";
+      if (lang === "cpp" || lang === "java" || lang === "rust") {
+        const label = lang === "cpp" ? "C++" : lang === "rust" ? "Rust" : "Java";
         vscode.window.setStatusBarMessage(`lcex: recursion visualizer doesn't support ${label} yet`, 5000);
         return;
       }
@@ -2645,8 +2244,8 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
         return;
       }
       const lang = languageFromFileExtension(ext) ?? "typescript";
-      if (lang === "cpp" || lang === "java") {
-        const label = lang === "cpp" ? "C++" : "Java";
+      if (lang === "cpp" || lang === "java" || lang === "rust") {
+        const label = lang === "cpp" ? "C++" : lang === "rust" ? "Rust" : "Java";
         vscode.window.setStatusBarMessage(`lcex: iterative visualizer doesn't support ${label} yet`, 5000);
         return;
       }
@@ -2694,8 +2293,8 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
         return;
       }
       const lang = languageFromFileExtension(ext) ?? "typescript";
-      if (lang === "cpp" || lang === "java") {
-        const label = lang === "cpp" ? "C++" : "Java";
+      if (lang === "cpp" || lang === "java" || lang === "rust") {
+        const label = lang === "cpp" ? "C++" : lang === "rust" ? "Rust" : "Java";
         vscode.window.setStatusBarMessage(`lcex: fuzzer doesn't support ${label} yet`, 5000);
         return;
       }
@@ -2885,64 +2484,6 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
     ]);
   };
 
-  const runExamplesOn = async (
-    doc: vscode.TextDocument,
-    editor: vscode.TextEditor
-  ): Promise<void> => {
-    const ext = path.extname(doc.uri.fsPath).toLowerCase();
-    const lang = languageFromFileExtension(ext) ?? "typescript";
-    clearInlineDecorations(editor, "lcex.runExamples");
-    const footer = FEATURE_FOOTER("on-save runs", "leetcode-practice.toggleRunExamplesOnSave");
-    try {
-      const results = await runExamplesImpl(doc.uri);
-      if (results.length === 0) return;
-      const items: InlineItem[] = results.map((r) => {
-        const line = Math.max(0, r.lineIndex - 1);
-        if (r.pass) {
-          const tail = r.expected === null ? ` → ${r.actual}` : "  ✓";
-          return {
-            line,
-            text: tail,
-            severity: r.expected === null ? "muted" : "success",
-            hoverMarkdown:
-              `**lcex: example passed**\n\n- actual: \`${r.actual || "(empty)"}\`${r.expected !== null ? `\n- expected: \`${r.expected}\`` : ""}` +
-              footer,
-          };
-        }
-        return {
-          line,
-          text: `  ✗ expected ${r.expected ?? "?"} · got ${r.actual || "∅"}`,
-          severity: "error",
-          hoverMarkdown:
-            `**lcex example failed**\n\n- expected: \`${r.expected ?? "?"}\`\n- got: \`${r.actual || "(empty)"}\`` +
-            footer,
-        };
-      });
-      applyInlineDecorations(editor, "lcex.runExamples", items);
-      if (!handleBugReviewScratchResults(doc.uri.fsPath, results)) {
-        recordBugReviewsFromExampleResults(doc, results);
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      const isTimeout = /\b(ETIMEDOUT|SIGTERM|SIGKILL|timeout|timed out|killed)\b/i.test(msg);
-      const blocks = parseExampleBlocks(doc.getText(), lang);
-      const firstBlockLine = blocks[0]?.callLine ? blocks[0].callLine - 1 : 0;
-      const label = isTimeout ? "✗ timeout (>15s)" : "✗ runtime error";
-      applyInlineDecorations(editor, "lcex.runExamples", [
-        {
-          line: firstBlockLine,
-          text: `  ${label} — hover for details`,
-          severity: "error",
-          hoverMarkdown:
-            (isTimeout
-              ? `**lcex: execution timed out**\n\nExceeded 15 seconds.\n\n\`\`\`\n${msg}\n\`\`\``
-              : `**lcex: execution failed**\n\n\`\`\`\n${msg}\n\`\`\``) +
-            footer,
-        },
-      ]);
-    }
-  };
-
   const runAllFeaturesOn = async (doc: vscode.TextDocument): Promise<void> => {
     if (!isInlineEnabled()) return;
     const ext = path.extname(doc.uri.fsPath).toLowerCase();
@@ -2952,14 +2493,8 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
     );
     if (!editor) return;
 
-    // Database solutions get the local query check instead of the algorithm suite:
-    // a complexity budget or an edge-case probe means nothing for a query. `.sql`
-    // is decisive on its own; for pandas `.py` the cached problem answers it
-    // without a network round trip on every save.
+    // Algorithm lint and complexity checks do not apply to database solutions.
     if (ext === ".sql" || isDatabaseProblem(getProblemFromViewCache(resolveSlugForUri(doc.uri)))) {
-      if (isRunExamplesOnSaveEnabled()) {
-        void runDatabaseSolutionLocally({ fileUri: doc.uri, quiet: true });
-      }
       return;
     }
 
@@ -2971,7 +2506,6 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
     if (isLintEnabled()) runLintOn(doc);
     if (isComplexityEnabled()) await runComplexityOn(doc, editor, problem);
     if (isAdversarialEnabled()) await runAdversarialOn(doc, editor, problem);
-    if (isRunExamplesOnSaveEnabled()) void runExamplesOn(doc, editor);
   };
 
   context.subscriptions.push(
@@ -2981,7 +2515,7 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
       const ext = uri ? path.extname(uri.fsPath).toLowerCase() : "";
       if (!editor || !uri || !ALGORITHM_SOLUTION_EXTENSIONS.includes(ext)) {
         vscode.window.setStatusBarMessage(
-          "lcex: open a .ts/.js/.py/.cpp/.java solution file for a complexity budget",
+          "lcex: open a .ts/.js/.py/.cpp/.java/.rs solution file for a complexity budget",
           5000
         );
         return;
@@ -2994,7 +2528,7 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
       const ext = uri ? path.extname(uri.fsPath).toLowerCase() : "";
       if (!editor || !uri || !ALGORITHM_SOLUTION_EXTENSIONS.includes(ext)) {
         vscode.window.setStatusBarMessage(
-          "lcex: open a .ts/.js/.py/.cpp/.java solution file for adversarial probes",
+          "lcex: open a .ts/.js/.py/.cpp/.java/.rs solution file for adversarial probes",
           5000
         );
         return;
@@ -3038,41 +2572,6 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
   };
 
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "leetcode-practice.toggleLint",
-      makeToggle("lint.enabled", "lint", "lcex.lint", true, true)
-    ),
-    vscode.commands.registerCommand(
-      "leetcode-practice.toggleComplexityBudget",
-      makeToggle("complexityBudget.enabled", "complexity budget", "lcex.complexity", true)
-    ),
-    vscode.commands.registerCommand(
-      "leetcode-practice.toggleAdversarialTests",
-      makeToggle("adversarialTests.enabled", "edge-case probes", "lcex.adversarial", false)
-    ),
-    vscode.commands.registerCommand(
-      "leetcode-practice.toggleRunExamplesOnSave",
-      makeToggle("runExamplesOnSave.enabled", "run examples on save", "lcex.runExamples", true)
-    ),
-    vscode.commands.registerCommand("leetcode-practice.toggleInlineDecorations", async () => {
-      const current = isInlineEnabled();
-      await setCfg("inlineDecorations.enabled", !current);
-      if (current) {
-        for (const ed of vscode.window.visibleTextEditors) {
-          clearInlineDecorations(ed);
-        }
-        lintDiagnostics.clear();
-      } else if (vscode.window.activeTextEditor) {
-        void runAllFeaturesOn(vscode.window.activeTextEditor.document);
-      }
-      vscode.window.setStatusBarMessage(
-        `lcex: inline decorations ${!current ? "enabled" : "disabled"}`,
-        4000
-      );
-    })
-  );
-
-  context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
       void runAllFeaturesOn(doc);
     }),
@@ -3089,7 +2588,6 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
       );
       if (ed) {
         clearInlineDecorations(ed, "lcex.lint");
-        clearInlineDecorations(ed, "lcex.runExamples");
         clearInlineDecorations(ed, "lcex.complexity");
         clearInlineDecorations(ed, "lcex.adversarial");
       }
@@ -3099,24 +2597,6 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
   if (vscode.window.activeTextEditor) {
     void runAllFeaturesOn(vscode.window.activeTextEditor.document);
   }
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("leetcode-practice.runInTerminal", () => {
-      const editor = vscode.window.activeTextEditor;
-      const filePath = editor?.document.uri.fsPath;
-      const ext = filePath ? path.extname(filePath) : "";
-      if (!filePath || !ALGORITHM_SOLUTION_EXTENSIONS.includes(ext.toLowerCase())) {
-        vscode.window.showWarningMessage(
-          "Open a supported solution file (.ts, .js, .py, .cpp, .java) to run."
-        );
-        return;
-      }
-      trackAnalytics("run_in_terminal", "command_palette", "run_in_terminal", {
-        language: bucketLanguage(ext.replace(".", "")),
-      });
-      runTsNodeInTerminal(filePath);
-    })
-  );
 
   const globalState = context.globalState;
   const storagePath = context.globalStorageUri.fsPath;
@@ -3441,10 +2921,14 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
     patternMasteryProvider.refresh();
   }
   webviewOptsHolder.current = {
-    onMarkSolved: async (titleSlug) => {
-      setProblemStatus(globalState, titleSlug, "solved");
-      await handleProblemSolved(context, titleSlug, getProvider);
+    onClearStatus: async (titleSlug) => {
+      await setProblemStatus(globalState, titleSlug, undefined);
       refreshAllProblemViews();
+    },
+    onMarkSolved: async (titleSlug) => {
+      await setProblemStatus(globalState, titleSlug, "solved");
+      refreshAllProblemViews();
+      void handleProblemSolved(context, titleSlug, getProvider).then(() => patternMasteryProvider.refresh());
       void refreshInterviewHubIfOpen(context, getProvider);
     },
     onMarkInterviewSolved: async (titleSlug) => {
@@ -3919,20 +3403,22 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
         trackAnalytics("command_invoked", "sidebar", "mark_solved", {
           difficulty: bucketDifficulty(node.item.difficulty),
         });
-        setProblemStatus(globalState, node.item.titleSlug, "solved");
-        await handleProblemSolved(context, node.item.titleSlug, getProvider);
+        await setProblemStatus(globalState, node.item.titleSlug, "solved");
         refreshAllProblemViews();
+        await refreshProblemStatus(context, node.item.titleSlug);
+        void handleProblemSolved(context, node.item.titleSlug, getProvider).then(() => patternMasteryProvider.refresh());
       }
     })
   );
   context.subscriptions.push(
-    vscode.commands.registerCommand("leetcode-practice.markAsAttempting", (node: ProblemTreeItem) => {
+    vscode.commands.registerCommand("leetcode-practice.markAsAttempting", async (node: ProblemTreeItem) => {
       if (node?.item?.titleSlug) {
         trackAnalytics("command_invoked", "sidebar", "mark_attempting", {
           difficulty: bucketDifficulty(node.item.difficulty),
         });
-        setProblemStatus(globalState, node.item.titleSlug, "attempting");
+        await setProblemStatus(globalState, node.item.titleSlug, "attempting");
         refreshAllProblemViews();
+        await refreshProblemStatus(context, node.item.titleSlug);
       }
     })
   );
@@ -3965,11 +3451,12 @@ Output only the JSON inside one \`\`\`json code block. Save the result as a file
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("leetcode-practice.clearProblemStatus", (node: ProblemTreeItem) => {
+    vscode.commands.registerCommand("leetcode-practice.clearProblemStatus", async (node: ProblemTreeItem) => {
       if (node?.item?.titleSlug) {
         trackAnalytics("command_invoked", "sidebar", "clear_status");
-        setProblemStatus(globalState, node.item.titleSlug, undefined);
+        await setProblemStatus(globalState, node.item.titleSlug, undefined);
         refreshAllProblemViews();
+        await refreshProblemStatus(context, node.item.titleSlug);
       }
     })
   );

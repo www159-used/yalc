@@ -1,7 +1,7 @@
 {
   "name": "leetcode-practice",
-  "displayName": "LeetCode Practice — Problems, Study Plans & Interview Mode",
-  "description": "Solve LeetCode problems in VS Code. Browse problems, study plans (Top Interview 150, Blind 75), and Question of the Day. Generate TypeScript / JavaScript / Python / C++ / Java templates, run examples inline, track XP & streaks, and run timed mock interviews.",
+  "displayName": "LeetCode Practice \u2014 Problems, Study Plans & Interview Mode",
+  "description": "Solve LeetCode problems in VS Code. Browse problems, study plans (Top Interview 150, Blind 75), and Question of the Day. Generate TypeScript / JavaScript / Python / C++ / Java templates, run examples on LeetCode, track XP & streaks, and run timed mock interviews.",
   "version": "0.12.1",
   "publisher": "nikkyamresh",
   "engines": {
@@ -63,7 +63,8 @@
     "top interview 150",
     "blind 75",
     "question of the day",
-    "qotd"
+    "qotd",
+    "rust"
   ],
   "contributes": {
     "commands": [
@@ -81,16 +82,6 @@
       {
         "command": "leetcode-practice.openQotd",
         "title": "LeetCode: Open Question of the Day",
-        "category": "LeetCode"
-      },
-      {
-        "command": "leetcode-practice.runExamples",
-        "title": "LeetCode: Run Examples",
-        "category": "LeetCode"
-      },
-      {
-        "command": "leetcode-practice.runQueryLocally",
-        "title": "LeetCode: Run Query Locally",
         "category": "LeetCode"
       },
       {
@@ -154,18 +145,8 @@
         "category": "LeetCode"
       },
       {
-        "command": "leetcode-practice.toggleRunExamplesOnSave",
-        "title": "LeetCode: Toggle Run Examples on Save",
-        "category": "LeetCode"
-      },
-      {
         "command": "leetcode-practice.toggleInlineDecorations",
         "title": "LeetCode: Toggle All Inline Decorations",
-        "category": "LeetCode"
-      },
-      {
-        "command": "leetcode-practice.runInTerminal",
-        "title": "LeetCode: Run in Terminal",
         "category": "LeetCode"
       },
       {
@@ -308,25 +289,20 @@
       },
       {
         "command": "leetcode-practice.agentMakeRunnable",
-        "title": "LeetCode: Ask Agent – Make Runnable"
+        "title": "LeetCode: Ask Agent \u2013 Make Runnable"
       },
       {
         "command": "leetcode-practice.agentHint",
-        "title": "LeetCode: Ask Agent — Hint (coaching)"
+        "title": "LeetCode: Ask Agent \u2014 Hint (coaching)"
       },
       {
         "command": "leetcode-practice.agentAnalyze",
-        "title": "LeetCode: Ask Agent — Analyze (scored review)",
-        "category": "LeetCode"
-      },
-      {
-        "command": "leetcode-practice.openHintAnalysis",
-        "title": "LeetCode: Open solution notes (.hint)",
+        "title": "LeetCode: Ask Agent \u2014 Analyze (scored review)",
         "category": "LeetCode"
       },
       {
         "command": "leetcode-practice.agentExplainCode",
-        "title": "LeetCode: Ask Agent – Explain My Code",
+        "title": "LeetCode: Ask Agent \u2013 Explain My Code",
         "category": "LeetCode"
       },
       {
@@ -346,12 +322,12 @@
       },
       {
         "command": "leetcode-practice.interviewModeStart",
-        "title": "LeetCode: Interview Mode — Start",
+        "title": "LeetCode: Interview Mode \u2014 Start",
         "category": "LeetCode"
       },
       {
         "command": "leetcode-practice.interviewModeStop",
-        "title": "LeetCode: Interview Mode — Stop",
+        "title": "LeetCode: Interview Mode \u2014 Stop",
         "category": "LeetCode"
       },
       {
@@ -361,7 +337,7 @@
       },
       {
         "command": "leetcode-practice.openLcInterviewReportFile",
-        "title": "LeetCode: Open LC Interview Report…",
+        "title": "LeetCode: Open LC Interview Report\u2026",
         "category": "LeetCode"
       },
       {
@@ -395,11 +371,6 @@
         },
         {
           "command": "leetcode-practice.agentAnalyze",
-          "when": "leetcodePractice.hasMarker && leetcodePractice.isSolutionFile && !leetcodePractice.interviewMode",
-          "group": "navigation"
-        },
-        {
-          "command": "leetcode-practice.openHintAnalysis",
           "when": "leetcodePractice.hasMarker && leetcodePractice.isSolutionFile && !leetcodePractice.interviewMode",
           "group": "navigation"
         },
@@ -553,12 +524,6 @@
     },
     "keybindings": [
       {
-        "command": "leetcode-practice.runInTerminal",
-        "key": "ctrl+shift+r",
-        "mac": "cmd+shift+r",
-        "when": "leetcodePractice.hasMarker && leetcodePractice.isSolutionFile && editorTextFocus"
-      },
-      {
         "command": "leetcode-practice.clearInlineDecorations",
         "key": "ctrl+k ctrl+l",
         "mac": "cmd+k cmd+l",
@@ -619,19 +584,6 @@
           "light": "./icons/logo-dark-16.png",
           "dark": "./icons/logo-dark-16.png"
         }
-      },
-      {
-        "id": "leetcode-hint",
-        "aliases": [
-          "LeetCode Hint"
-        ],
-        "extensions": [
-          "hint"
-        ],
-        "icon": {
-          "light": "./icons/hint.svg",
-          "dark": "./icons/hint.svg"
-        }
       }
     ],
     "configuration": {
@@ -649,7 +601,7 @@
             "slug"
           ],
           "default": "id",
-          "description": "New file name: 'id' → 167.ts, 'slug' → two-sum-ii-input-array-is-sorted.ts"
+          "description": "New file name: 'id' \u2192 167.ts, 'slug' \u2192 two-sum-ii-input-array-is-sorted.ts"
         },
         "leetcodePractice.language": {
           "type": "string",
@@ -658,7 +610,8 @@
             "javascript",
             "python",
             "cpp",
-            "java"
+            "java",
+            "rust"
           ],
           "default": "typescript",
           "description": "Language for generated solution files and run/submit."
@@ -675,7 +628,7 @@
         "leetcodePractice.suppressAiTabOnSolve": {
           "type": "boolean",
           "default": true,
-          "description": "In workspaces with a root .leetcode file, when you open/create a solution from the problem page, write workspace settings to reduce Tab/inline AI completions for that solution language (editor.inlineSuggest.enabled false and editor.tabCompletion off in [typescript]/[javascript]/[python]/[cpp]/[java])."
+          "description": "In workspaces with a root .leetcode file, when you open/create a solution from the problem page, write workspace settings to reduce Tab/inline AI completions for that solution language (editor.inlineSuggest.enabled false and editor.tabCompletion off in [typescript]/[javascript]/[python]/[cpp]/[java]/[rust])."
         },
         "leetcodePractice.suppressAiTabWorkspaceWide": {
           "type": "boolean",
@@ -787,17 +740,12 @@
         "leetcodePractice.complexityBudget.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "On save, derive a complexity budget from the problem's size constraints and compare against your solution's estimated loop nesting. Shows 🟢/🟡/🔴 on the signature and per-loop badges."
+          "description": "On save, derive a complexity budget from the problem's size constraints and compare against your solution's estimated loop nesting. Shows \ud83d\udfe2/\ud83d\udfe1/\ud83d\udd34 on the signature and per-loop badges."
         },
         "leetcodePractice.adversarialTests.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "On save, surface edge-case probes derived from parsed constraints (empty, max-size, boundary, negatives) as an inline hint on the function signature. Off by default — enable or run `LeetCode: Surface Adversarial Edge Cases` on demand."
-        },
-        "leetcodePractice.runExamplesOnSave.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "On save, run the solution's example lines automatically and show results inline. Spawns a language process per save — disable if iteration feels sluggish."
+          "description": "On save, surface edge-case probes derived from parsed constraints (empty, max-size, boundary, negatives) as an inline hint on the function signature. Off by default \u2014 enable or run `LeetCode: Surface Adversarial Edge Cases` on demand."
         },
         "leetcodePractice.runExamples.sandbox": {
           "type": "string",
@@ -812,7 +760,7 @@
         "leetcodePractice.bugReview.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Spaced-repetition bug review: when an example fails, snapshot the failing test (input, expected, actual, full source) to ~/.lcex/bug-reviews.json and resurface it 3/7/30/90 days later as a re-attempt drill. Status bar shows count due. Off by default — enable to start building the queue."
+          "description": "Spaced-repetition bug review: when an example fails, snapshot the failing test (input, expected, actual, full source) to ~/.lcex/bug-reviews.json and resurface it 3/7/30/90 days later as a re-attempt drill. Status bar shows count due. Off by default \u2014 enable to start building the queue."
         },
         "leetcodePractice.fuzzer.enabled": {
           "type": "boolean",
@@ -822,7 +770,7 @@
         "leetcodePractice.empiricalFit.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Empirical complexity fitter: define `benchmark(n)` (or `def benchmark(n)`) that runs your solution at size n; the fitter times it at growing N and fits a curve (const/log/sqrt/n/n log n/n²/n³/2ⁿ). Surfaces a verdict if the empirical class exceeds the static estimate. Off by default."
+          "description": "Empirical complexity fitter: define `benchmark(n)` (or `def benchmark(n)`) that runs your solution at size n; the fitter times it at growing N and fits a curve (const/log/sqrt/n/n log n/n\u00b2/n\u00b3/2\u207f). Surfaces a verdict if the empirical class exceeds the static estimate. Off by default."
         },
         "leetcodePractice.recursionTree.enabled": {
           "type": "boolean",
@@ -837,12 +785,12 @@
         "leetcodePractice.showContests": {
           "type": "boolean",
           "default": true,
-          "description": "Show the Contests sidebar view (past weekly/biweekly + upcoming-contest metadata). Past contest problems open in the editor; upcoming contests show a countdown and an 'Open on leetcode.com' action only — live-contest questions are intentionally not surfaced."
+          "description": "Show the Contests sidebar view (past weekly/biweekly + upcoming-contest metadata). Past contest problems open in the editor; upcoming contests show a countdown and an 'Open on leetcode.com' action only \u2014 live-contest questions are intentionally not surfaced."
         },
         "leetcodePractice.showCompanies": {
           "type": "boolean",
           "default": true,
-          "description": "Show the Companies sidebar view — browse LeetCode problems grouped by company (frequency, acceptance, difficulty, topics) sourced from liquidslr/interview-company-wise-problems."
+          "description": "Show the Companies sidebar view \u2014 browse LeetCode problems grouped by company (frequency, acceptance, difficulty, topics) sourced from liquidslr/interview-company-wise-problems."
         },
         "leetcodePractice.timerMode": {
           "type": "string",
@@ -903,17 +851,6 @@
           }
         ],
         "priority": "default"
-      },
-      {
-        "id": "leetcode-practice.hintEditor",
-        "viewType": "leetcode-practice.hintEditor",
-        "displayName": "LeetCode solution notes (.hint)",
-        "selector": [
-          {
-            "filenamePattern": "*.hint"
-          }
-        ],
-        "priority": "default"
       }
     ]
   },
@@ -924,9 +861,11 @@
     "compile": "npm run typecheck && npm run bundle",
     "build:companies-data": "node scripts/build-companies-data.mjs",
     "watch": "node esbuild.config.mjs --watch",
-    "test": "node --test --import tsx test/integration.test.ts test/java-template.test.ts test/database.test.ts test/feedback.test.ts",
+    "test": "node --test --import tsx test/integration.test.ts test/java-template.test.ts test/database.test.ts test/feedback.test.ts test/submission.test.ts test/submission-view.test.ts test/python-template.test.ts test/problem-status.test.ts test/rust-project.test.ts",
     "package": "npm run compile && npx vsce package",
-    "install-extension": "npm run package && node -e \"const v=require('./package.json').version;require('child_process').execSync('code --install-extension leetcode-practice-'+v+'.vsix --force',{stdio:'inherit'})\""
+    "install-extension": "npm run package && node -e \"const v=require('./package.json').version;require('child_process').execSync('code --install-extension leetcode-practice-'+v+'.vsix --force',{stdio:'inherit'})\"",
+    "test:submission": "node --test --import tsx test/submission.test.ts test/submission-view.test.ts",
+    "test:python-template": "node --test --import tsx test/python-template.test.ts"
   },
   "devDependencies": {
     "@types/ejs": "^3.1.3",

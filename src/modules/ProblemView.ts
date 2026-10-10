@@ -1,3 +1,6 @@
+import { ensureRustWorkspace } from "./RustWorkspace";
+import { publicExampleInput } from "../utils/exampleInput";
+import type { SubmissionResult } from "./interface/SubmissionResult";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as vscode from "vscode";
@@ -43,7 +46,6 @@ import {
   bucketLanguage,
   track as trackAnalytics,
 } from "./cloud/analytics";
-import { createDefaultHintFileJson } from "./HintFile";
 import { lookupProblem as lookupCompaniesProblem, loadCompaniesDataset } from "./CompaniesData";
 import { getProblemTimer, TIMER_BY_DAY_KEY, TIMER_ELAPSED_KEY, type TimerByDay } from "./ProblemTimer";
 import {
@@ -125,7 +127,7 @@ function formatProblemPlainText(problem: Problem): string {
     `LeetCode #${problem.id} · ${problem.difficulty || "Unknown"}`,
     "Open Solution: editor title bar (code icon), or run command 'LeetCode: Open Solution'.",
     "",
-    problemHtmlToPlainText(problem.content || "") || "(No description.)",
+    problemHtmlToPlainText(problem.translatedContent || problem.content || "") || "(No description.)",
   ];
   if (problem.sampleTestCase?.trim()) {
     lines.push("", "Sample test case (stdin):", problem.sampleTestCase.trim());
@@ -493,186 +495,14 @@ export function getTitleSlugForActiveSolutionFile(context: vscode.ExtensionConte
   return null;
 }
 
-/**
- * Creates a `*.hint` JSON file beside the solution if missing, then opens it (custom Analysis editor).
- */
-export async function openHintFileForProblem(
-  context: vscode.ExtensionContext,
-  getProvider: () => IProblemProvider,
-  titleSlug?: string
-): Promise<void> {
-  await ensureProblemCacheLoaded(context);
-  const slug = titleSlug?.trim() ?? getTitleSlugForActiveSolutionFile(context);
-  if (!slug) {
-    vscode.window.showWarningMessage("Open a problem from the list or a solution file first.");
-    return;
-  }
-  let problem = getCachedProblem(slug);
-  if (!problem) {
-    await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: "Loading problem…" },
-      async () => {
-        const p = await getProvider().getProblem(slug);
-        if (p) {
-          setCachedProblem(slug, p, context);
-          problem = p;
-        }
-      }
-    );
-  }
-  if (!problem) {
-    vscode.window.showErrorMessage("Could not load problem. Open it from the practice panel or check the slug.");
-    return;
-  }
-  if (!vscode.workspace.workspaceFolders?.length) {
-    vscode.window.showWarningMessage("Open a workspace folder first.");
-    return;
-  }
-  const solutionBase = interviewSolutionBaseDir(context.globalState);
-  const attemptHex = interviewSolutionAttemptHex(context.globalState);
-  const baseUri = vscode.window.activeTextEditor?.document.uri;
-  const { path: hintPath, exists } = await Database.resolveHintFilePathForOpen(
-    baseUri,
-    problem.id,
-    problem.titleSlug,
-    solutionBase,
-    attemptHex
-  );
-  const uri = vscode.Uri.file(hintPath);
-  const body = createDefaultHintFileJson(problem.titleSlug, problem.title);
-  try {
-    await fs.mkdir(path.dirname(hintPath), { recursive: true });
-  } catch (e) {
-    Logger.logError("Hint file: could not create parent directory", e);
-    vscode.window.showErrorMessage(
-      `Could not create folder for hint file: ${path.dirname(hintPath)}`
-    );
-    return;
-  }
-  if (!exists) {
-    try {
-      await vscode.workspace.fs.writeFile(uri, Buffer.from(body, "utf8"));
-    } catch (e) {
-      Logger.logError("Hint file: workspace write failed, retrying with fs", e);
-      try {
-        await fs.writeFile(hintPath, body, "utf-8");
-      } catch (e2) {
-        Logger.logError("Hint file: write failed", e2);
-        vscode.window.showErrorMessage(
-          `Could not create ${path.basename(hintPath)}. Check folder permissions and workspace trust.`
-        );
-        return;
-      }
-    }
-  }
-  try {
-    await vscode.commands.executeCommand("workbench.files.action.refreshFilesExplorer");
-  } catch {
-    /* explorer command may be unavailable */
-  }
-  await vscode.window.showTextDocument(uri, { preview: false });
-}
-
-/** Numeric problem id from active solution tab (e.g. `2813.ts` → `2813`). */
-function numericIdFromActiveSolutionEditor(): string | undefined {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) return undefined;
-  const ext = path.extname(editor.document.fileName).toLowerCase();
-  if (!SOLUTION_FILE_EXTENSIONS.includes(ext)) return undefined;
-  const base = path.basename(editor.document.fileName, ext);
-  return /^\d+$/.test(base) ? base : undefined;
-}
-
-/** Slug basename from active solution tab (e.g. `two-sum.ts` → `two-sum`). */
-function slugBasenameFromActiveSolutionEditor(): string | undefined {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) return undefined;
-  const ext = path.extname(editor.document.fileName).toLowerCase();
-  if (!SOLUTION_FILE_EXTENSIONS.includes(ext)) return undefined;
-  const base = path.basename(editor.document.fileName, ext);
-  return /^[a-z0-9-]+$/i.test(base) && !/^\d+$/.test(base) ? base : undefined;
-}
-
-/**
- * If a `.hint` file already exists for this problem (by **numeric id** and/or **slug** path), open it and return true.
- * Otherwise return false (caller may open agent chat).
- * Resolves paths even when the problem API is unavailable, using the open solution file name + panel slug.
- */
-export async function tryOpenExistingHintFile(
-  context: vscode.ExtensionContext,
-  getProvider: () => IProblemProvider,
-  titleSlug?: string
-): Promise<boolean> {
-  await ensureProblemCacheLoaded(context);
-  const slugArg = titleSlug?.trim();
-  const slugFromPanel = getTitleSlugForActiveSolutionFile(context);
-  const slug = slugArg ?? slugFromPanel ?? undefined;
-
-  let problem: Problem | undefined = slug ? getCachedProblem(slug) : undefined;
-  if (slug && !problem) {
-    await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: "Loading problem…" },
-      async () => {
-        const p = await getProvider().getProblem(slug);
-        if (p) {
-          setCachedProblem(slug, p, context);
-          problem = p;
-        }
-      }
-    );
-  }
-
-  if (!vscode.workspace.workspaceFolders?.length) {
-    return false;
-  }
-  const solutionBase = interviewSolutionBaseDir(context.globalState);
-  const attemptHex = interviewSolutionAttemptHex(context.globalState);
-
-  let problemIdStr: string;
-  let titleSlugStr: string;
-
-  if (problem) {
-    problemIdStr = String(problem.id);
-    titleSlugStr = problem.titleSlug;
-  } else {
-    const numId = numericIdFromActiveSolutionEditor();
-    const slugFromFile = slugBasenameFromActiveSolutionEditor();
-    const s = slugArg ?? slugFromPanel ?? slugFromFile ?? "";
-    if (!numId && !s) {
-      return false;
-    }
-    problemIdStr = numId ?? s;
-    titleSlugStr = s || numId || "";
-  }
-
-  const baseUri = vscode.window.activeTextEditor?.document.uri;
-  const { path: hintPath, exists } = await Database.resolveHintFilePathForOpen(
-    baseUri,
-    problemIdStr,
-    titleSlugStr,
-    solutionBase,
-    attemptHex
-  );
-  if (!exists) {
-    return false;
-  }
-  const uri = vscode.Uri.file(hintPath);
-  try {
-    await vscode.commands.executeCommand("workbench.files.action.refreshFilesExplorer");
-  } catch {
-    /* */
-  }
-  await vscode.window.showTextDocument(uri, { preview: false });
-  return true;
-}
-
 /** In-memory cache of problem data (by titleSlug) for instant show and soft reload. */
 const problemCache = new Map<string, Problem>();
 
 /** True after we have loaded from disk once this session; avoids re-reading on every open. */
 let problemCacheLoadedFromDisk = false;
 
-const CACHE_FILENAME = "problem-cache.json";
+// Use a fresh display cache so pre-localization English entries are fetched again.
+const CACHE_FILENAME = "problem-cache-cn-v2.json";
 
 /** Single viewType so we can register one serializer to restore panels after window reload. */
 export const PROBLEM_WEBVIEW_VIEWTYPE = "leetcodeProblem";
@@ -1251,7 +1081,7 @@ async function renderChallengeHtml(
   _webview: vscode.Webview
 ): Promise<string> {
   const templatesDir = getTemplatesDir(context);
-  const content = problem.content || "<p>No description.</p>";
+  const content = problem.translatedContent || problem.content || "<p>No description.</p>";
   const difficulty = problem.difficulty || "Unknown";
   const panelLanguage = getEffectiveChallengePanelLanguage(context, problem);
   const hasSolution = await solutionFileExists(context, problem, panelLanguage);
@@ -1291,8 +1121,6 @@ async function renderChallengeHtml(
     }
   }
 
-  const notesMap = context.globalState.get<Record<string, string>>("leetcode-practice.problemNotes") ?? {};
-  const note = notesMap[problem.titleSlug] ?? "";
   const focusCompact = context.globalState.get<boolean>(FOCUS_COMPACT_WEBVIEW_KEY) ?? false;
   const interviewSession = getInterviewSession(context.globalState);
   const interviewMode = Boolean(interviewSession?.active);
@@ -1312,8 +1140,7 @@ async function renderChallengeHtml(
     isLoggedIn: isLoggedIn ?? false,
     content,
     hasSolution,
-    sampleTestCase: problem.sampleTestCase ?? "",
-    note,
+    sampleTestCase: publicExampleInput(problem),
     solutionContent,
     solutionHtml,
     focusCompact,
@@ -1840,24 +1667,14 @@ export async function openInterviewReportWebview(
   panel.webview.html = html;
 }
 
-/** Runs the solution file in the integrated terminal (strategy: tsx / node / python3 / g++). */
-export function runTsNodeInTerminal(filePath: string): void {
-  const ext = path.extname(filePath);
-  const strategy = languageStrategyFromExtension(ext);
-  const terminal = vscode.window.activeTerminal ?? vscode.window.createTerminal("LeetCode");
-  terminal.show();
-  terminal.sendText(
-    (strategy ?? getLanguageStrategy("typescript")).buildTerminalCommand(filePath)
-  );
-}
-
 async function renderTestcasesHtml(
   context: vscode.ExtensionContext,
   opts: {
-    status: boolean;
+    status: boolean | null;
     heading: string;
     subheading: string;
     compileMessage?: string;
+    submission?: SubmissionResult & { id: number };
     testcaseResults?: Array<{
       id: number;
       status: boolean;
@@ -1878,7 +1695,26 @@ async function renderTestcasesHtml(
     heading: opts.heading,
     subheading: opts.subheading,
     testcaseResults: opts.testcaseResults ?? [],
+    submission: opts.submission,
   });
+}
+
+/** Re-render local status without fetching the statement or waiting on the network. */
+export async function refreshProblemStatus(
+  context: vscode.ExtensionContext,
+  titleSlug: string
+): Promise<void> {
+  const state = problemViews.get(titleSlug);
+  if (state?.webviewPanel) {
+    state.webviewPanel.webview.html = await renderChallengeHtml(
+      context,
+      state.problem,
+      getStoredStatus(context.globalState, titleSlug),
+      Database.isLoggedIn(context),
+      state.webviewPanel.webview
+    );
+  }
+  firePlainProblemDocumentChanged(titleSlug);
 }
 
 /** Fetches fresh problem data, updates cache and webview html. No user-facing error. */
@@ -1911,6 +1747,7 @@ interface SetupPanelMessageHandlerOpts {
   getProvider?: () => IProblemProvider;
   getProblemStatus?: (titleSlug: string) => ProblemStatus | undefined;
   onMarkSolved?: (titleSlug: string) => void | Promise<void>;
+  onClearStatus?: (titleSlug: string) => void | Promise<void>;
   onMarkInterviewSolved?: (titleSlug: string) => void | Promise<void>;
 }
 
@@ -1926,10 +1763,9 @@ function setupPanelMessageHandler(
       event: string;
       titleSlug: string;
       customInput?: string;
-      note?: string;
       language?: string;
     }) => {
-      const { event, titleSlug: msgSlug, customInput, note, language: msgLanguage } = msg;
+      const { event, titleSlug: msgSlug, customInput, language: msgLanguage } = msg;
       const s = problemViews.get(msgSlug);
       if (!s) return;
       const timer = getProblemTimer();
@@ -1964,28 +1800,12 @@ function setupPanelMessageHandler(
             picked as SupportedLanguage
           );
         }
-      } else if (event === "run" && isDatabaseProblem(s.problem)) {
-        // Database problems have nothing to execute in a terminal; run them
-        // against the locally seeded tables instead.
-        await vscode.commands.executeCommand("leetcode-practice.runQueryLocally", {
-          titleSlug: msgSlug,
-        });
-      } else if (event === "run") {
-        const uri = vscode.window.activeTextEditor?.document.uri;
-        const lang = getEffectiveChallengePanelLanguage(context, s.problem);
-        trackAnalytics("run_in_terminal", "webview", "run_in_terminal", {
-          language: bucketLanguage(lang),
-        });
-        const { path: filePath } = await Database.resolveSolutionFilePathForOpen(
-          uri,
-          s.problem.id,
-          s.problem.titleSlug,
-          interviewSolutionBaseDir(context.globalState),
-          interviewSolutionAttemptHex(context.globalState),
-          lang
-        );
-        runTsNodeInTerminal(filePath);
-      } else if (event === "runOnLeetCode" && customInput !== undefined) {
+      } else if (event === "viewSolutions") {
+        if (getInterviewSession(context.globalState)?.active) return;
+        await vscode.env.openExternal(vscode.Uri.parse(
+          `https://leetcode.cn/problems/${encodeURIComponent(s.problem.titleSlug)}/solutions/`
+        ));
+      } else if (event === "runOnLeetCode") {
         await executeCode(context, s.problem, "run", customInput);
       } else if (event === "submit") {
         await executeCode(context, s.problem, "submit");
@@ -1997,11 +1817,16 @@ function setupPanelMessageHandler(
         if (opts?.onMarkSolved) {
           await Promise.resolve(opts.onMarkSolved(msgSlug));
         } else {
-          setProblemStatus(context.globalState, msgSlug, "solved");
+          await setProblemStatus(context.globalState, msgSlug, "solved");
         }
-        if (opts?.getProvider && opts?.getProblemStatus) {
-          await softReload(context, msgSlug, opts.getProvider, opts.getProblemStatus);
+        await refreshProblemStatus(context, msgSlug);
+      } else if (event === "clearProblemStatus") {
+        if (opts?.onClearStatus) {
+          await opts.onClearStatus(msgSlug);
+        } else {
+          await setProblemStatus(context.globalState, msgSlug, undefined);
         }
+        await refreshProblemStatus(context, msgSlug);
       } else if (event === "markInterviewSolved") {
         trackAnalytics("command_invoked", "webview", "mark_interview_solved", {
           difficulty: bucketDifficulty(s.problem.difficulty),
@@ -2009,13 +1834,7 @@ function setupPanelMessageHandler(
         if (opts?.onMarkInterviewSolved) {
           await Promise.resolve(opts.onMarkInterviewSolved(msgSlug));
         }
-        if (opts?.getProvider && opts?.getProblemStatus) {
-          await softReload(context, msgSlug, opts.getProvider, opts.getProblemStatus);
-        }
-      } else if (event === "saveNote" && msgSlug && note !== undefined) {
-        trackAnalytics("command_invoked", "webview", "save_note");
-        const notesMap = context.globalState.get<Record<string, string>>("leetcode-practice.problemNotes") ?? {};
-        await context.globalState.update("leetcode-practice.problemNotes", { ...notesMap, [msgSlug]: note });
+        await refreshProblemStatus(context, msgSlug);
       } else if (event === "toggleFocusMode") {
         const inWorkbenchFocus =
           context.workspaceState.get(FOCUS_ZEN_STATUSBAR_PREV_KEY) !== undefined;
@@ -2028,8 +1847,6 @@ function setupPanelMessageHandler(
         await vscode.commands.executeCommand("leetcode-practice.agentHint", { titleSlug: msgSlug });
       } else if (event === "agentAnalyze") {
         await vscode.commands.executeCommand("leetcode-practice.agentAnalyze", { titleSlug: msgSlug });
-      } else if (event === "openHintAnalysis") {
-        await vscode.commands.executeCommand("leetcode-practice.openHintAnalysis", { titleSlug: msgSlug });
       }
     }
   );
@@ -2037,6 +1854,7 @@ function setupPanelMessageHandler(
 
 export interface OpenProblemWebviewOpts {
   onMarkSolved?: (titleSlug: string) => void | Promise<void>;
+  onClearStatus?: (titleSlug: string) => void | Promise<void>;
   onMarkInterviewSolved?: (titleSlug: string) => void | Promise<void>;
 }
 
@@ -2105,6 +1923,7 @@ export async function openProblemWebview(
       getProvider,
       getProblemStatus,
       onMarkSolved: opts?.onMarkSolved,
+      onClearStatus: opts?.onClearStatus,
       onMarkInterviewSolved: opts?.onMarkInterviewSolved,
     });
     getProblemTimer()?.registerPanel(item.titleSlug, panel, cached.title, status === "solved", cached.difficulty);
@@ -2155,6 +1974,7 @@ export async function openProblemWebview(
     getProvider,
     getProblemStatus,
     onMarkSolved: opts?.onMarkSolved,
+    onClearStatus: opts?.onClearStatus,
     onMarkInterviewSolved: opts?.onMarkInterviewSolved,
   });
   getProblemTimer()?.registerPanel(item.titleSlug, panel, problem.title, status === "solved", problem.difficulty);
@@ -2219,6 +2039,7 @@ export async function restoreProblemPanel(
       getProvider,
       getProblemStatus,
       onMarkSolved: opts?.onMarkSolved,
+      onClearStatus: opts?.onClearStatus,
       onMarkInterviewSolved: opts?.onMarkInterviewSolved,
     });
     getProblemTimer()?.registerPanel(titleSlug, panel, problem.title, status === "solved", problem.difficulty);
@@ -2276,6 +2097,13 @@ export async function openOrCreateSolution(
     });
     await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), Buffer.from(content, "utf8"));
   }
+  if (lang === "rust") {
+    try { await ensureRustWorkspace(vscode.Uri.file(filePath)); }
+    catch (error) {
+      Logger.logError("Rust editor project setup failed", error);
+      vscode.window.showWarningMessage("Could not configure the Rust editor project. See Output → LeetCode Practice.");
+    }
+  }
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
   await vscode.window.showTextDocument(doc, {
     viewColumn: vscode.ViewColumn.Beside,
@@ -2296,13 +2124,53 @@ async function executeCode(
     );
     return;
   }
-  const editor = vscode.window.activeTextEditor;
-  const fileName = editor?.document.fileName ?? "";
-  const ext = path.extname(fileName);
+  const activeDocument = vscode.window.activeTextEditor?.document;
+  const solutionBase = interviewSolutionBaseDir(context.globalState);
+  const attemptHex = interviewSolutionAttemptHex(context.globalState);
+  const candidates = [...new Set([
+    ...(activeDocument ? [activeDocument] : []),
+    ...vscode.window.visibleTextEditors.map(editor => editor.document),
+    ...vscode.workspace.textDocuments,
+  ])].filter(doc => {
+    const strategy = languageStrategyFromExtension(path.extname(doc.fileName).toLowerCase());
+    if (!strategy) return false;
+    const { idPath, slugPath } = Database.getSolutionPathSet(
+      doc.uri, problem.id, problem.titleSlug, solutionBase, attemptHex, strategy.id
+    );
+    const filePath = path.resolve(doc.fileName);
+    return filePath === path.resolve(idPath) || filePath === path.resolve(slugPath);
+  });
+  let document: vscode.TextDocument | undefined;
+  if (activeDocument && candidates.includes(activeDocument)) {
+    document = activeDocument;
+  } else if (candidates.length === 1) {
+    document = candidates[0];
+  } else if (candidates.length > 1) {
+    const selected = await vscode.window.showQuickPick(
+      candidates.map(doc => ({ label: path.basename(doc.fileName), description: doc.fileName, document: doc })),
+      { placeHolder: `Choose the solution to ${action} for ${problem.titleSlug}` }
+    );
+    if (!selected) return;
+    document = selected.document;
+  } else {
+    const resolved = await Database.resolveSolutionFilePathForOpen(
+      undefined, problem.id, problem.titleSlug, solutionBase, attemptHex,
+      getEffectiveChallengePanelLanguage(context, problem)
+    );
+    if (resolved.exists) {
+      try {
+        document = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved.path));
+      } catch (error) {
+        Logger.logError("Could not open solution for execution", error);
+      }
+    }
+  }
+  const ext = path.extname(document?.fileName ?? "").toLowerCase();
   const strategy = languageStrategyFromExtension(ext);
-  if (!editor || !strategy) {
+  if (!document || !strategy) {
+    Logger.log(`${action}: no solution file for ${problem.id} (${problem.titleSlug}); open documents=${vscode.workspace.textDocuments.length}`);
     vscode.window.showWarningMessage(
-      "Open a solution file (.ts, .js, .py, .cpp, .java, or .sql) and try again."
+      `No solution file found for ${problem.id}. ${problem.titleSlug}. Open/create its solution first.`
     );
     return;
   }
@@ -2314,152 +2182,163 @@ async function executeCode(
       : "pandas"
     : strategy.id;
   const langSlug = leetcodeApiLangFor(submitLanguage);
-  const code = editor.document.getText();
+  const code = document.getText();
+  Logger.log(`${action}: using ${path.basename(document.fileName)} for ${problem.titleSlug}`);
   const leetcode = new LeetCodeProvider();
   const state = problemViews.get(problem.titleSlug);
-  vscode.window.showInformationMessage(action === "run" ? "Running..." : "Submitting...");
+  const showResult = async (heading: string, subheading: string, status: boolean | null = false): Promise<void> => {
+    const html = await renderTestcasesHtml(context, { status, heading, subheading });
+    if (!state?.testcasesPanel) {
+      const panel = vscode.window.createWebviewPanel("testcases", "Testcases",
+        { viewColumn: vscode.ViewColumn.Three, preserveFocus: true }, {});
+      if (state) state.testcasesPanel = panel;
+      panel.onDidDispose(() => { if (state) state.testcasesPanel = undefined; });
+      panel.webview.html = html;
+    } else {
+      state.testcasesPanel.webview.html = html;
+      state.testcasesPanel.reveal(vscode.ViewColumn.Three, true);
+    }
+  };
+  await showResult(action === "run" ? "Running…" : "Submitting…", "Waiting for LeetCode's result.", null);
+  try {
 
-  if (action === "run") {
-    const runResult = await leetcode.runCode(
-      problem.titleSlug,
-      code,
-      langSlug,
-      session.cookie,
-      customInput
-    );
-    if (!runResult) {
-      Logger.log("Run failed: runCode returned null (see lines above for HTTP/API details)");
-      vscode.window.showErrorMessage("Run failed. Check cookie or network. See Output → LeetCode Practice for details.");
-      return;
-    }
-    const status = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: "Running on LeetCode..." },
-      () =>
-        pollRunStatus(() =>
-          leetcode.getRunStatus(runResult.interpretId, session.cookie)
-        )
-    );
-    if (!status) {
-      vscode.window.showErrorMessage("Run timed out.");
-      return;
-    }
-    const success = !status.compileError && status.status === 10;
-    const heading = status.compileError
-      ? "Compilation Error :("
-      : success
-        ? "Congratulations! :)"
-        : "Wrong answer :(";
-    const subheading = status.compileError
-      ? "Check the compiler output, fix the error and try again."
-      : success
-        ? "You have passed the sample testcases. Click the submit button to run your code against all the code test cases."
-        : "Check the compiler error, fix the error and try again.";
-    const html = status.compileError
-      ? await renderTestcasesHtml(context, {
-          status: false,
-          heading: "Compilation Error :(",
-          subheading,
-          compileMessage: status.compileError,
-        })
-      : await renderTestcasesHtml(context, {
-          status: success,
-          heading,
-          subheading,
-          testcaseResults: [
-            {
-              id: 0,
-              status: success,
-              stdin: problem.sampleTestCase || "",
-              stdout: status.runOutput,
-              expectedOutput: undefined,
-            },
-          ],
-        });
-    if (state?.testcasesPanel) {
-      state.testcasesPanel.reveal(vscode.ViewColumn.Three);
-      state.testcasesPanel.webview.html = html;
-    } else {
-      const panel = vscode.window.createWebviewPanel(
-        "testcases",
-        "Testcases",
-        { viewColumn: vscode.ViewColumn.Three, preserveFocus: true },
-        {}
+
+    if (action === "run") {
+      const runResult = await leetcode.runCode(
+        problem.titleSlug,
+        code,
+        langSlug,
+        session.cookie,
+        customInput
       );
-      panel.webview.html = html;
-      if (state) state.testcasesPanel = panel;
-      panel.onDidDispose(() => {
-        if (state) state.testcasesPanel = undefined;
-      });
-    }
-  } else {
-    const submitResult = await leetcode.submitCode(
-      problem.titleSlug,
-      code,
-      langSlug,
-      session.cookie
-    );
-    if (!submitResult) {
-      Logger.log("Submit failed: submitCode returned null (see lines above for HTTP/API details)");
-      vscode.window.showErrorMessage("Submit failed. Check cookie or network. See Output → LeetCode Practice for details.");
-      return;
-    }
-    const status = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: "Submitting to LeetCode..." },
-      () =>
-        pollSubmitStatus(() =>
-          leetcode.getSubmitStatus(submitResult.submissionId, session.cookie)
-        )
-    );
-    if (!status) {
-      vscode.window.showErrorMessage("Submit timed out.");
-      return;
-    }
-    const success = status.runSuccess === true;
-    const heading = success
-      ? "Accepted"
-      : status.compileError
+      if (!runResult) {
+        Logger.log("Run failed: runCode returned null (see lines above for HTTP/API details)");
+        await showResult("Run failed", "Check your session and network, then try again.");
+        vscode.window.showErrorMessage("Run failed. Check cookie or network. See Output → LeetCode Practice for details.");
+        return;
+      }
+      const status = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: "Running on LeetCode..." },
+        () =>
+          pollRunStatus(() =>
+            leetcode.getRunStatus(runResult.interpretId, session.cookie)
+          )
+      );
+      if (!status) {
+        await showResult("Run result unavailable", "The result could not be retrieved. Try running again.");
+        vscode.window.showErrorMessage("Run result unavailable.");
+        return;
+      }
+      const success = !status.compileError && !status.runtimeError && status.status === 10 && status.correctAnswer === true;
+      const heading = status.compileError
         ? "Compilation Error :("
-        : status.status;
-    const subheading = success
-      ? "You have passed all test cases."
-      : status.compileError
+        : success
+          ? "示例运行通过"
+          : status.runtimeError ? "Runtime Error" : "示例未通过";
+      const subheading = status.compileError
         ? "Check the compiler output, fix the error and try again."
-        : "Fix the error and try again.";
-    const html = status.compileError
-      ? await renderTestcasesHtml(context, {
-          status: false,
-          heading: "Compilation Error :(",
-          subheading,
-          compileMessage: status.compileError,
-        })
-      : await renderTestcasesHtml(context, {
-          status: success,
-          heading,
-          subheading,
-          testcaseResults: [
-            {
-              id: 0,
-              status: success,
-              stdout: status.runtimeError ?? status.status,
-              expectedOutput: "—",
-            },
-          ],
+        : success
+          ? `已通过 ${status.totalCorrect ?? status.totalTestcases ?? "全部"}${status.totalTestcases != null ? ` / ${status.totalTestcases}` : ""} 组运行用例。Submit 将运行全部判题用例。`
+          : status.runtimeError || "请检查各组实际结果与预期结果。";
+      const html = status.compileError
+        ? await renderTestcasesHtml(context, {
+            status: false,
+            heading: "Compilation Error :(",
+            subheading,
+            compileMessage: status.compileError,
+          })
+        : await renderTestcasesHtml(context, {
+            status: success,
+            heading,
+            subheading,
+            testcaseResults: status.testcaseResults?.length ? status.testcaseResults : [{
+              id: 0, status: success, stdin: customInput ?? publicExampleInput(problem), stdout: status.runOutput,
+            }],
+          });
+      if (state?.testcasesPanel) {
+        state.testcasesPanel.reveal(vscode.ViewColumn.Three);
+        state.testcasesPanel.webview.html = html;
+      } else {
+        const panel = vscode.window.createWebviewPanel(
+          "testcases",
+          "Testcases",
+          { viewColumn: vscode.ViewColumn.Three, preserveFocus: true },
+          {}
+        );
+        panel.webview.html = html;
+        if (state) state.testcasesPanel = panel;
+        panel.onDidDispose(() => {
+          if (state) state.testcasesPanel = undefined;
         });
-    if (state?.testcasesPanel) {
-      state.testcasesPanel.reveal(vscode.ViewColumn.Three);
-      state.testcasesPanel.webview.html = html;
+      }
     } else {
-      const panel = vscode.window.createWebviewPanel(
-        "testcases",
-        "Testcases",
-        { viewColumn: vscode.ViewColumn.Three, preserveFocus: true },
-        {}
+      const submitResult = await leetcode.submitCode(
+        problem.titleSlug,
+        code,
+        langSlug,
+        session.cookie
       );
-      panel.webview.html = html;
-      if (state) state.testcasesPanel = panel;
-      panel.onDidDispose(() => {
-        if (state) state.testcasesPanel = undefined;
+      if (!submitResult) {
+        Logger.log("Submit failed: submitCode returned null (see lines above for HTTP/API details)");
+        await showResult("Submit failed", "Check your session and network, then try again.");
+        vscode.window.showErrorMessage("Submit failed. Check cookie or network. See Output → LeetCode Practice for details.");
+        return;
+      }
+      const status = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: "Submitting to LeetCode..." },
+        () =>
+          pollSubmitStatus(() =>
+            leetcode.getSubmitStatus(submitResult.submissionId, session.cookie)
+          )
+      );
+      if (!status) {
+        await showResult("Submission result unavailable",
+          `Submission ${submitResult.submissionId} was sent, but its verdict could not be retrieved. Check https://leetcode.cn/submissions/detail/${submitResult.submissionId}/ before submitting again.`);
+        vscode.window.showErrorMessage("Submission sent; result unavailable. Check its detail page.");
+        return;
+      }
+      Logger.log(`submit: submission ${submitResult.submissionId} verdict=${status.status}`);
+      const success = status.status === "Accepted" && !status.compileError && !status.runtimeError;
+      const heading = success
+        ? "Accepted"
+        : status.compileError
+          ? "Compilation Error :("
+          : status.status;
+      const subheading = success
+        ? status.totalTestCaseCnt != null
+          ? `已通过全部 ${status.totalTestCaseCnt} 个测试用例。`
+          : "已通过全部测试用例。"
+        : status.compileError
+          ? "Check the compiler output, fix the error and try again."
+          : "Fix the error and try again.";
+      const html = await renderTestcasesHtml(context, {
+        status: success,
+        heading,
+        subheading: status.runtimeError || subheading,
+        compileMessage: status.compileError,
+        submission: { ...status, id: submitResult.submissionId },
       });
+      if (state?.testcasesPanel) {
+        state.testcasesPanel.reveal(vscode.ViewColumn.Three);
+        state.testcasesPanel.webview.html = html;
+      } else {
+        const panel = vscode.window.createWebviewPanel(
+          "testcases",
+          "Testcases",
+          { viewColumn: vscode.ViewColumn.Three, preserveFocus: true },
+          {}
+        );
+        panel.webview.html = html;
+        if (state) state.testcasesPanel = panel;
+        panel.onDidDispose(() => {
+          if (state) state.testcasesPanel = undefined;
+        });
+      }
     }
+  } catch (error) {
+    Logger.logError(`${action} failed`, error);
+    await showResult(action === "run" ? "Run result unavailable" : "Submission result unavailable",
+      "Could not retrieve a result. Check your network and LeetCode submission history before retrying.");
+    vscode.window.showErrorMessage("LeetCode request failed. See Output → LeetCode Practice for details.");
   }
 }

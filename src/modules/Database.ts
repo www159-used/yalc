@@ -1,3 +1,5 @@
+import { readFileSync } from "fs";
+import { homedir } from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 import type { Session } from "./interface/Session";
@@ -8,7 +10,16 @@ import { getLanguageStrategy, solutionFileBaseName } from "./language/LanguageSt
 const SESSION_KEY = "leetcodeSession";
 
 export function getSession(context: vscode.ExtensionContext): Session | undefined {
-  return context.globalState.get(SESSION_KEY);
+  const session = context.globalState.get<Session>(SESSION_KEY);
+  if (!session?.cookie?.trim()) return session;
+  // Preserve the local browser-cookie refresh workflow. A cleared session stays signed out.
+  try {
+    const cookie = readFileSync(path.join(homedir(), ".config", "leetcode-practice-cookie"), "utf8").trim();
+    if (cookie) return { ...session, cookie };
+  } catch {
+    // The cookie file is optional; fall back to the manually entered session.
+  }
+  return session;
 }
 
 export function isLoggedIn(context: vscode.ExtensionContext): boolean {
@@ -127,69 +138,6 @@ export async function resolveSolutionFilePathForOpen(
     solutionBaseDir,
     attemptHex,
     language
-  );
-  const folders = vscode.workspace.workspaceFolders ?? [];
-  const pattern = getEffectiveConfig(folders).fileNamePattern ?? "id";
-  let idExists = false;
-  let slugExists = false;
-  try {
-    await vscode.workspace.fs.stat(vscode.Uri.file(idPath));
-    idExists = true;
-  } catch {
-    /* missing */
-  }
-  try {
-    await vscode.workspace.fs.stat(vscode.Uri.file(slugPath));
-    slugExists = true;
-  } catch {
-    /* missing */
-  }
-  if (idExists && slugExists) {
-    return { path: pattern === "slug" ? slugPath : idPath, exists: true };
-  }
-  if (idExists) return { path: idPath, exists: true };
-  if (slugExists) return { path: slugPath, exists: true };
-  return { path: preferredNewPath, exists: false };
-}
-
-/** Same directory and id/slug naming as solutions, extension `.hint`. */
-export function getHintFilePathSet(
-  baseUri: vscode.Uri | undefined,
-  problemId: string,
-  titleSlug: string,
-  solutionBaseDir?: string,
-  attemptHex?: string
-): { idPath: string; slugPath: string; preferredNewPath: string } {
-  const targetDir =
-    typeof solutionBaseDir === "string" && solutionBaseDir.trim()
-      ? path.resolve(solutionBaseDir.trim())
-      : getTargetDir(baseUri);
-  const folders = vscode.workspace.workspaceFolders ?? [];
-  const pattern = getEffectiveConfig(folders).fileNamePattern ?? "id";
-  const suffix =
-    typeof attemptHex === "string" && ATTEMPT_HEX.test(attemptHex.trim())
-      ? `-${attemptHex.trim().toLowerCase()}`
-      : "";
-  const idPath = path.join(targetDir, `${problemId}${suffix}.hint`);
-  const slugPath = path.join(targetDir, `${titleSlug}${suffix}.hint`);
-  const preferredNewPath = pattern === "slug" ? slugPath : idPath;
-  return { idPath, slugPath, preferredNewPath };
-}
-
-/** Picks `*.hint` path using the same rules as solution files. */
-export async function resolveHintFilePathForOpen(
-  baseUri: vscode.Uri | undefined,
-  problemId: string,
-  titleSlug: string,
-  solutionBaseDir?: string,
-  attemptHex?: string
-): Promise<{ path: string; exists: boolean }> {
-  const { idPath, slugPath, preferredNewPath } = getHintFilePathSet(
-    baseUri,
-    problemId,
-    titleSlug,
-    solutionBaseDir,
-    attemptHex
   );
   const folders = vscode.workspace.workspaceFolders ?? [];
   const pattern = getEffectiveConfig(folders).fileNamePattern ?? "id";

@@ -45,22 +45,22 @@ export function getStoredStatus(memento: vscode.Memento, titleSlug: string): Pro
   return getRawEntry(memento, titleSlug)?.status;
 }
 
-export function setProblemStatus(
+export async function setProblemStatus(
   memento: vscode.Memento,
   titleSlug: string,
   status: ProblemStatus | undefined
-): void {
+): Promise<void> {
   const map = memento.get<Record<string, StoredStatusEntry>>(STATUS_KEY) ?? {};
   if (status === undefined) {
     const next = { ...map };
     delete next[titleSlug];
-    memento.update(STATUS_KEY, next);
+    await memento.update(STATUS_KEY, next);
   } else {
     const entry: StoredStatusEntry =
       status === "solved"
         ? { status, solvedAt: new Date().toISOString().slice(0, 10) }
         : { status };
-    memento.update(STATUS_KEY, { ...map, [titleSlug]: entry });
+    await memento.update(STATUS_KEY, { ...map, [titleSlug]: entry });
   }
 }
 
