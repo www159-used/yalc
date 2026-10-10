@@ -37,7 +37,7 @@ export interface LeetcodeConfig {
   agentPromptMakeRunnable?: string;
   /** Prompt sent to Cursor when clicking "Hint" in a solution file. Only in LeetCode workspace. */
   agentPromptHint?: string;
-  /** Prompt for scored implementation review (fills Analysis in `.hint`). Only in LeetCode workspace. */
+  /** Prompt for scored implementation review (replies in chat). Only in LeetCode workspace. */
   agentPromptAnalyze?: string;
   /** Base prompt for "Explain my code" (selection appended). Only in LeetCode workspace. */
   agentPromptExplain?: string;
@@ -72,7 +72,7 @@ const DEFAULTS: Required<
   showCompanies: true,
   agentPromptMakeRunnable: "Make this Runnable, do not give solution.",
   agentPromptHint:
-    "Load **lcex-dsa-hint** and follow it. Nudge from the problem only—do not read or review my code. Each `coaching` value: one short line; no solution.",
+    "Load **lcex-dsa-hint** and follow it. Nudge from the problem only—do not read or review my code. Reply briefly in chat; no solution or note files.",
   agentPromptAnalyze:
     "Load **lcex-dsa-analyze** and follow it. Analyze my current LeetCode solution implementation.",
   agentPromptExplain:
